@@ -1,3 +1,6 @@
+# -alternative-travel-destination
+서울 여행지 대체 추천 프로젝트
+
 # Plan B 관광 API 모듈
 
 웹 구현 전에 한국관광공사 국문 관광정보 OpenAPI 연결을 검증하기 위한 Python 패키지다.
