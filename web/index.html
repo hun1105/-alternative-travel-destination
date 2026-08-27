@@ -1385,7 +1385,9 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
         || (body.preferred_lcls2 && cand.lcls2 === body.preferred_lcls2);
       const categoryBadge = categoryMatches
         ? `<span style="color:var(--ok);font-weight:600;">· 비슷한 카테고리</span>` : "";
-      const overviewText = truncateText(cand.overview, 90);
+      // TMAP 소개문이 관광공사 개요보다 짧고 캐주얼해서 우선 쓰고,
+      // 없는 장소(예: DDP)는 관광공사 개요로 대체한다.
+      const overviewText = truncateText(cand.tmap_desc || cand.overview, 90);
       card.innerHTML = `<div class="title">${cand.rank}. ${escapeHtml(cand.title)} (점수 ${cand.score}) ${categoryBadge}</div>
         <div class="meta">${escapeHtml(cand.address || "")}</div>
         <div class="meta">이동 ${cand.route_minutes}분 · 혼잡도 ${escapeHtml(cand.crowd?.label || "정보없음")}</div>

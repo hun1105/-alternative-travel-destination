@@ -50,6 +50,7 @@ class PlaceSearchResult:
     address: str = ""
     category: str = ""
     phone: str = ""
+    desc: str = ""
 
     def selection_payload(self) -> dict[str, Any]:
         return {"provider": "tmap", **asdict(self)}
@@ -153,6 +154,7 @@ def parse_place_search_response(body: bytes, query: str) -> PlaceSearchResponse:
                 item, "lowerBizName", "middleBizName", "upperBizName", "mlClass"
             ),
             phone=_text(item, "telNo"),
+            desc=_text(item, "desc"),
         ))
     total = search_info.get("totalCount", len(items))
     try:

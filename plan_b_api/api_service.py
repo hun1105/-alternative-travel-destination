@@ -16,7 +16,11 @@ from .car_route_client import TMapCarClient
 from .crowd_client import SKCrowdClient, match_crowd_place
 from .kto_client import KTOApiError, KTOClient
 from .normalizer import normalize_place
-from .place_search_client import TMapPlaceSearchClient, TMapPlaceSearchError
+from .place_search_client import (
+    PlaceSearchResult,
+    TMapPlaceSearchClient,
+    TMapPlaceSearchError,
+)
 from .optimized_recommender import (
     ApiOptimizationStats,
     DETAIL_TTL_SECONDS,
@@ -69,6 +73,52 @@ def _distance_meters(lon1: float, lat1: float, lon2: float, lat2: float) -> floa
     return 6_371_000 * 2 * atan2(sqrt(a), sqrt(1 - a))
 
 
+def _find_tmap_description(
+    client: TMapPlaceSearchClient,
+    *,
+    name: str,
+    longitude: float,
+    latitude: float,
+) -> str:
+    """추천 후보를 TMAP에서 이름+좌표로 찾아 짧은 소개 문구(desc)를 가져온다.
+
+    관광공사 overview는 백과사전식으로 길고 딱딱한 경우가 많은데,
+    TMAP의 desc는 방송 소개 위주로 짧고 후보 카드에 더 잘 맞는다.
+    다만 모든 장소에 있는 건 아니라서(예: DDP) 못 찾으면 빈 문자열을
+    반환하고, 호출한 쪽에서 관광공사 overview로 대체한다.
+    """
+
+    try:
+        result = client.search(
+            name, count=5, center_x=longitude, center_y=latitude, radius_km=5,
+        )
+    except TMapPlaceSearchError:
+        return ""
+
+    target = _normalize_place_name(name)
+    best: PlaceSearchResult | None = None
+    best_rank: tuple[int, float] | None = None
+    for item in result.items:
+        if not item.desc:
+            continue
+        title = _normalize_place_name(item.name)
+        if not title:
+            continue
+        if title == target:
+            exactness = 0
+        elif target in title or title in target:
+            exactness = 1
+        else:
+            continue
+        distance = _distance_meters(longitude, latitude, item.longitude, item.latitude)
+        if distance > 2000:
+            continue
+        rank = (exactness, distance)
+        if best_rank is None or rank < best_rank:
+            best, best_rank = item, rank
+    return best.desc if best else ""
+
+
 def _priority_fields(values: Sequence[Any] | None) -> tuple[str, ...]:
     if not values:
         return ("weather_fit", "route_time", "crowd_avoidance")
@@ -96,6 +146,7 @@ def _candidate_dict(
     candidate: RankedTourCandidate,
     *,
     rank: int | None = None,
+    tmap_desc: str | None = None,
 ) -> dict[str, Any]:
     score = candidate.evaluation.score
     build = candidate.evaluation.build
@@ -113,6 +164,7 @@ def _candidate_dict(
         "lcls2": candidate.lcls2,
         "lcls3": candidate.lcls3,
         "overview": place.overview,
+        "tmap_desc": tmap_desc or None,
         "address": place.address,
         "longitude": place.longitude,
         "latitude": place.latitude,
@@ -783,6 +835,26 @@ class PlanBApiService:
                 ),
             )
 
+        # 최종 추천 후보(보통 3개)만 TMAP에서 짧은 소개문을 찾아본다 —
+        # 제외된 후보까지 조회하면 호출량만 늘고 화면에 쓰이지 않는다.
+        tmap_descriptions: dict[str, str] = {}
+        try:
+            desc_client = TMapPlaceSearchClient.from_env()
+        except ValueError:
+            desc_client = None
+        if desc_client is not None:
+            for candidate in result.recommendations:
+                if candidate.place.longitude is None or candidate.place.latitude is None:
+                    continue
+                desc = _find_tmap_description(
+                    desc_client,
+                    name=candidate.title,
+                    longitude=candidate.place.longitude,
+                    latitude=candidate.place.latitude,
+                )
+                if desc:
+                    tmap_descriptions[candidate.content_id] = desc
+
         stats_data = asdict(result.stats)
         stats_data["total_api_calls"] = result.stats.total_api_calls
         return {
@@ -790,7 +862,10 @@ class PlanBApiService:
             "weather": weather_data,
             "priorities": list(_priority_fields(body.get("priorities"))),
             "recommendations": [
-                _candidate_dict(candidate, rank=index)
+                _candidate_dict(
+                    candidate, rank=index,
+                    tmap_desc=tmap_descriptions.get(candidate.content_id),
+                )
                 for index, candidate in enumerate(result.recommendations, start=1)
             ],
             "excluded": [
