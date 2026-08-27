@@ -38,6 +38,7 @@
     padding: 12px; font-size: 15px; border-bottom: 3px solid transparent;
   }
   #panel-tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+  #panel-tabs button[data-view="info"] { display: none; }
   .panel-view { display: none; }
   .panel-view.active { display: block; }
   #directions-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
@@ -56,24 +57,28 @@
       position: absolute; inset: 0; width: 100% !important; height: 100% !important;
       display: block !important;
     }
-    #sidebar {
-      position: fixed; left: 0; right: 0; bottom: 0; top: auto;
-      width: 100% !important; max-height: 92vh;
-      border-radius: 16px 16px 0 0; box-shadow: 0 -6px 20px rgba(0, 0, 0, .25);
-      z-index: 900; display: flex !important;
-    }
+    /* 모바일에서는 "여행 정보" 시트를 따로 띄우지 않고 일정/경로상세와
+       같은 바텀시트의 세 번째 탭으로 합친다(#info-view로 이동, 아래
+       JS setupInfoTabMerge 참고) — 시트 두 개가 겹쳐 보이는 문제 해결. */
+    #sidebar { display: none !important; }
     #directions-panel {
       position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: 100%;
       max-height: 92vh; border-left: none; border-top: 1px solid var(--border);
       border-radius: 16px 16px 0 0;
       box-shadow: 0 -4px 16px rgba(0, 0, 0, .25); z-index: 1000;
     }
+    #panel-tabs button[data-view="info"] { display: block; }
+    #info-view #sidebar-scroll {
+      padding: 0; overflow: visible; flex: none;
+    }
+    /* 드래그 핸들 터치 영역을 넓혀서(반경 확대) 모바일에서 드래그 인식이
+       잘 안 되는 문제를 줄인다. */
     #sidebar-handle, #directions-handle {
       display: flex; flex: 0 0 auto; justify-content: center;
-      padding: 10px 0 6px; cursor: grab; touch-action: none;
+      padding: 18px 0; cursor: grab; touch-action: none;
     }
     #sidebar-handle .bar, #directions-handle .bar {
-      width: 44px; height: 5px; border-radius: 3px; background: var(--border);
+      width: 52px; height: 6px; border-radius: 3px; background: var(--border);
     }
   }
   .step {
@@ -239,8 +244,10 @@
     <div id="panel-tabs">
       <button type="button" class="panel-tab active" data-view="schedule">일정</button>
       <button type="button" class="panel-tab" data-view="directions">경로 상세</button>
+      <button type="button" class="panel-tab" data-view="info">여행 정보</button>
     </div>
     <div id="directions-scroll">
+    <div id="info-view" class="panel-view"></div>
     <div id="schedule-view" class="panel-view active">
       <h2>일정 목록 (<span id="schedule-count">0</span>)</h2>
       <div id="schedule-list"></div>
@@ -500,30 +507,15 @@ function makeDraggableSheet(panel, handle, opts) {
   handle.addEventListener("pointercancel", finishDrag);
 }
 
-// 모바일에서는 두 시트가 완전히 겹치면 아래쪽(설정) 시트를 절대 열 수 없으므로,
-// 경로/일정 시트를 설정 시트 높이 바로 위에 쌓아 올려 항상 둘 다 손잡이가 보이게 한다.
-makeDraggableSheet(
-  document.getElementById("sidebar"),
-  document.getElementById("sidebar-handle"),
-  {
-    peek: 96, mid: 0.32, max: 0.85,
-    onChange: (h) => {
-      const stacked = document.getElementById("directions-panel");
-      if (h == null || !window.matchMedia("(max-width: 768px)").matches) {
-        stacked.style.bottom = "";
-      } else {
-        stacked.style.bottom = h + "px";
-      }
-    },
-  }
-);
+// 모바일에서는 시트를 하나만 띄우고(일정/경로 상세/여행 정보 3탭),
+// 그 시트를 드래그로 접힘·절반·전체 사이에서 오갈 수 있게 한다.
 makeDraggableSheet(
   document.getElementById("directions-panel"),
   document.getElementById("directions-handle"),
-  { peek: 96, mid: 0.5, max: 0.6 }
+  { peek: 96, mid: 0.5, max: 0.85 }
 );
 
-// ---------- 우측 패널: 일정 / 경로 상세 탭 ----------
+// ---------- 우측 패널: 일정 / 경로 상세 / 여행 정보 탭 ----------
 function activatePanelView(view) {
   document.querySelectorAll("#panel-tabs .panel-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
@@ -535,6 +527,29 @@ function activatePanelView(view) {
 document.querySelectorAll("#panel-tabs .panel-tab").forEach((btn) => {
   btn.addEventListener("click", () => activatePanelView(btn.dataset.view));
 });
+
+// 모바일 폭에서는 "여행 정보"(#sidebar-scroll)를 별도 시트로 띄우지 않고
+// #info-view 안으로 옮겨서 세 번째 탭으로 보여준다. 데스크톱으로 돌아가면
+// 원래 자리(#sidebar)로 되돌린다 — 같은 DOM 노드를 옮기는 방식이라 id
+// 중복 없이 두 레이아웃 모두 동일한 입력 요소를 그대로 쓴다.
+(function setupInfoTabMerge() {
+  const mq = window.matchMedia("(max-width: 768px)");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarScroll = document.getElementById("sidebar-scroll");
+  const infoView = document.getElementById("info-view");
+
+  function applyForViewport() {
+    if (mq.matches) {
+      infoView.appendChild(sidebarScroll);
+    } else {
+      sidebar.appendChild(sidebarScroll);
+      const infoTab = document.querySelector('#panel-tabs .panel-tab[data-view="info"]');
+      if (infoTab.classList.contains("active")) activatePanelView("schedule");
+    }
+  }
+  applyForViewport();
+  mq.addEventListener("change", applyForViewport);
+})();
 
 function numberedIcon(n, color) {
   return L.divIcon({

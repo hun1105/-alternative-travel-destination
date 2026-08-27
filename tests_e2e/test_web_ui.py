@@ -103,8 +103,8 @@ class WebUITests(unittest.TestCase):
 
     def test_mobile_viewport_shows_map_and_draggable_sheets_without_overflow(self) -> None:
         # 네이버 지도 스타일 개편 후: 지도는 항상 전체 화면 배경이고
-        # 설정/일정 패널은 손잡이가 달린 바텀시트로 그 위에 항상 떠 있다
-        # (이전의 "목록/지도" 탭 전환 방식은 제거됨).
+        # 일정/경로 상세/여행 정보는 손잡이가 달린 바텀시트 하나에
+        # 탭 세 개로 합쳐져 있다(시트가 두 개 겹쳐 뜨는 방식은 제거됨).
         self.page.set_viewport_size({"width": 390, "height": 844})
 
         overflow = self.page.evaluate(
@@ -112,10 +112,18 @@ class WebUITests(unittest.TestCase):
         )
         self.assertEqual(overflow, 0)
         self.assertTrue(self.page.is_visible("#map"))
-        self.assertTrue(self.page.is_visible("#sidebar"))
-        self.assertTrue(self.page.is_visible("#sidebar-handle"))
+        self.assertFalse(self.page.is_visible("#sidebar"))
         self.assertTrue(self.page.is_visible("#directions-panel"))
         self.assertTrue(self.page.is_visible("#directions-handle"))
+        self.assertTrue(self.page.is_visible('#panel-tabs .panel-tab[data-view="info"]'))
+
+        self.page.click('#panel-tabs .panel-tab[data-view="info"]')
+        self.assertTrue(self.page.is_visible("#trip-title"))
+        self.assertTrue(self.page.is_visible("#search-q"))
+
+        self.page.click('#panel-tabs .panel-tab[data-view="schedule"]')
+        self.assertFalse(self.page.is_visible("#trip-title"))
+        self.assertTrue(self.page.is_visible("#btn-save"))
 
     def test_search_and_add_to_schedule(self) -> None:
         self._search_and_add("경복궁")
