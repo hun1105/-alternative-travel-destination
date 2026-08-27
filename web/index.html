@@ -237,14 +237,9 @@
         <div class="meta" id="prev-radius-info" style="margin-bottom: 6px;"></div>
         <label style="display:flex; align-items:center; gap:6px; margin: 8px 0;">
           <input type="checkbox" id="chk-prefer-category" style="width:auto;">
-          비슷한 카테고리 우선
+          비슷한 곳 우선 추천
         </label>
         <div class="meta" id="prefer-category-info" style="margin-bottom: 6px;"></div>
-        <label style="display:flex; align-items:center; gap:6px; margin: 8px 0;">
-          <input type="checkbox" id="chk-same-type" style="width:auto;">
-          같은 업종만 검색
-        </label>
-        <div class="meta" id="same-type-info" style="margin-bottom: 6px;"></div>
         <button class="primary" id="btn-run-recommend" style="margin: 6px 0;">이 조건으로 추천 받기</button>
         <div id="recommend-results"></div>
       </div>
@@ -1250,27 +1245,28 @@ function openGapFill(idx) {
   const removedPlace = state.schedules[idx].place;
   const catChk = document.getElementById("chk-prefer-category");
   const catInfo = document.getElementById("prefer-category-info");
+  // 세부 카테고리(cat2/lcls2)가 있으면 그걸로 소프트 재정렬하고,
+  // 없으면(국립중앙박물관처럼) 자동으로 업종(content_type) 하드 필터로
+  // 넘어간다 — 사용자가 매번 둘 중 뭘 켤지 고민할 필요 없게 하나로 합쳤다.
   if (removedPlace.cat2 || removedPlace.lcls2) {
     catChk.disabled = false;
     catChk.checked = false;
+    catChk.dataset.mode = "category";
     catInfo.textContent = "켜면 이 장소와 같은 세부 카테고리를 우선 추천합니다.";
+  } else if (removedPlace.kto_content_type_id && CONTENT_TYPE_LABELS[removedPlace.kto_content_type_id]) {
+    // 세부 카테고리가 아예 없는 장소는 업종 필터 없이 추천하면 엉뚱한
+    // 결과(시장·상가 등)가 나오는 걸 이미 확인했다. 그래서 이 경우엔
+    // 선택이 아니라 강제 적용 — 체크된 채로 고정하고 끌 수 없게 한다.
+    const typeLabel = CONTENT_TYPE_LABELS[removedPlace.kto_content_type_id];
+    catChk.disabled = true;
+    catChk.checked = true;
+    catChk.dataset.mode = "type";
+    catInfo.textContent = `이 장소는 세부 카테고리가 없어서, 같은 업종("${typeLabel}")으로만 검색합니다(세부 카테고리가 없는 장소는 끌 수 없음).`;
   } else {
     catChk.disabled = true;
     catChk.checked = false;
-    catInfo.textContent = "이 장소는 관광공사 데이터에 카테고리 분류 자체가 없어서 사용할 수 없음.";
-  }
-
-  const typeChk = document.getElementById("chk-same-type");
-  const typeInfo = document.getElementById("same-type-info");
-  const typeLabel = CONTENT_TYPE_LABELS[removedPlace.kto_content_type_id];
-  if (removedPlace.kto_content_type_id && typeLabel) {
-    typeChk.disabled = false;
-    typeChk.checked = false;
-    typeInfo.textContent = `켜면 "${typeLabel}" 업종만 검색합니다(음식점 등은 기본적으로 검색에서 빠지는데, 이 옵션을 켜면 포함됩니다).`;
-  } else {
-    typeChk.disabled = true;
-    typeChk.checked = false;
-    typeInfo.textContent = "이 장소는 관광공사 업종 분류를 찾지 못해 사용할 수 없음.";
+    catChk.dataset.mode = "";
+    catInfo.textContent = "이 장소는 관광공사 카테고리·업종 정보를 찾지 못해 사용할 수 없음.";
   }
 
   document.getElementById("recommend-results").innerHTML = "";
@@ -1318,16 +1314,18 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
   }
   if (usePrevRadius) body.radius = parseInt(info.dataset.radius, 10);
   const catChk = document.getElementById("chk-prefer-category");
-  if (catChk.checked && !catChk.disabled) {
-    if (item.place.cat2) body.preferred_cat2 = item.place.cat2;
-    if (item.place.lcls2) body.preferred_lcls2 = item.place.lcls2;
-  }
-  const typeChk = document.getElementById("chk-same-type");
-  if (typeChk.checked && !typeChk.disabled && item.place.kto_content_type_id) {
-    body.content_type_id = item.place.kto_content_type_id;
-    // 음식점(39)은 기본적으로 추천 대상에서 빠지므로, 같은 업종만
-    // 검색할 때 그게 음식점이면 명시적으로 포함시켜야 한다.
-    if (item.place.kto_content_type_id === "39") body.include_restaurants = true;
+  // "type" 모드는 강제 체크·비활성화 상태라 disabled로 걸러지면 안 되므로
+  // disabled 여부와 상관없이 checked 값만 본다.
+  if (catChk.checked) {
+    if (catChk.dataset.mode === "category") {
+      if (item.place.cat2) body.preferred_cat2 = item.place.cat2;
+      if (item.place.lcls2) body.preferred_lcls2 = item.place.lcls2;
+    } else if (catChk.dataset.mode === "type" && item.place.kto_content_type_id) {
+      body.content_type_id = item.place.kto_content_type_id;
+      // 음식점(39)은 기본적으로 추천 대상에서 빠지므로, 업종 필터로
+      // 넘어갈 때 그게 음식점이면 명시적으로 포함시켜야 한다.
+      if (item.place.kto_content_type_id === "39") body.include_restaurants = true;
+    }
   }
   const budget = document.getElementById("pref-budget").value;
   if (budget) body.budget = parseInt(budget, 10);
