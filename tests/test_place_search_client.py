@@ -46,6 +46,28 @@ class PlaceSearchClientTests(unittest.TestCase):
         self.assertEqual(query["searchKeyword"], ["경복궁"])
         self.assertEqual(captured["headers"]["appKey"], "secret")
 
+    def test_category_strips_stray_backslash_before_slash(self) -> None:
+        def transport(url, headers, timeout):
+            response = {
+                "searchPoiInfo": {
+                    "totalCount": "1",
+                    "pois": {"poi": [{
+                        "id": "1002",
+                        "name": "국립중앙박물관",
+                        "frontLon": "126.9803",
+                        "frontLat": "37.5240",
+                        "lowerBizName": "박물관\\/기념관",
+                    }]},
+                }
+            }
+            return 200, json.dumps(response).encode("utf-8")
+
+        result = TMapPlaceSearchClient(
+            TMapPlaceSearchConfig("secret"), transport=transport
+        ).search("국립중앙박물관", center_x=126.98, center_y=37.52)
+
+        self.assertEqual(result.items[0].category, "박물관/기념관")
+
     def test_requires_both_center_coordinates(self) -> None:
         client = TMapPlaceSearchClient(
             TMapPlaceSearchConfig("secret"),

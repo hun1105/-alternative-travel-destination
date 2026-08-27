@@ -80,7 +80,10 @@ def _text(item: Mapping[str, Any], *names: str) -> str:
     for name in names:
         value = item.get(name)
         if value not in (None, ""):
-            return str(value).strip()
+            # TMAP 응답의 lowerBizName 등 일부 필드는 "박물관\/기념관"처럼
+            # 슬래시 앞에 실제 백슬래시 문자가 섞여서 온다(JSON 이스케이프가
+            # 아니라 원본 데이터 자체의 특이사항). 표시용으로 정리한다.
+            return str(value).replace("\\/", "/").strip()
     return ""
 
 
