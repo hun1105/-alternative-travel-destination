@@ -341,6 +341,7 @@ const legLayer = L.layerGroup().addTo(map);
 const searchLayer = L.layerGroup().addTo(map);
 const recommendLayer = L.layerGroup().addTo(map);
 const stepLayer = L.layerGroup().addTo(map);
+const searchAreaLayer = L.layerGroup().addTo(map);
 
 // ---------- 사이드바 크기 조절 ----------
 (function setupResizer() {
@@ -1199,18 +1200,40 @@ function findNextLockedSchedule(idx) {
   return null;
 }
 
+// "이전 일정 기준으로 검색"이 어디를 얼마나 넓게 찾는 건지 글로만 봐서는
+// 감이 잘 안 온다는 피드백이 있어서, 실제 검색 범위를 지도에 원으로
+// 그려서 바로 눈으로 확인할 수 있게 한다.
+function renderSearchArea(centerLon, centerLat, radiusMeters, label) {
+  searchAreaLayer.clearLayers();
+  const center = [centerLat, centerLon];
+  const circle = L.circle(center, {
+    radius: radiusMeters, color: "#2d6cdf", weight: 2,
+    fillColor: "#2d6cdf", fillOpacity: 0.08, dashArray: "6 6",
+  });
+  searchAreaLayer.addLayer(circle);
+  searchAreaLayer.addLayer(
+    L.marker(center, { icon: pinIcon("🔍") }).bindPopup(escapeHtml(label))
+  );
+  map.fitBounds(circle.getBounds(), { padding: [40, 40], maxZoom: 16 });
+}
+
 function updatePrevRadiusInfo(idx) {
   const chk = document.getElementById("chk-prev-radius");
   const info = document.getElementById("prev-radius-info");
+  const item = state.schedules[idx];
   const prevItem = idx > 0 ? state.schedules[idx - 1] : null;
+  const DEFAULT_RADIUS_METERS = 3000;
   if (!prevItem) {
     chk.checked = false;
     chk.disabled = true;
     info.textContent = "이전 일정이 없어서 사용할 수 없음 (원래 위치 기준으로 검색됨)";
+    renderSearchArea(
+      item.place.longitude, item.place.latitude, DEFAULT_RADIUS_METERS,
+      `"${item.place.name}" 주변 반경 ${DEFAULT_RADIUS_METERS}m에서 검색`
+    );
     return;
   }
   chk.disabled = false;
-  const item = state.schedules[idx];
   const distance = straightDistanceMeters(
     prevItem.place.longitude, prevItem.place.latitude,
     item.place.longitude, item.place.latitude
@@ -1219,9 +1242,19 @@ function updatePrevRadiusInfo(idx) {
   info.dataset.prevLon = prevItem.place.longitude;
   info.dataset.prevLat = prevItem.place.latitude;
   info.dataset.radius = radius;
-  info.textContent = chk.checked
-    ? `"${prevItem.place.name}" 기준, 반경 ${radius}m 안에서 검색`
-    : `켜면 "${prevItem.place.name}" 기준 반경 ${radius}m 안에서 검색 (지금은 꺼짐 — 원래 위치 기준)`;
+  if (chk.checked) {
+    info.textContent = `"${prevItem.place.name}" 기준, 반경 ${radius}m 안에서 검색`;
+    renderSearchArea(
+      prevItem.place.longitude, prevItem.place.latitude, radius,
+      `"${prevItem.place.name}" 기준 검색 범위 (반경 ${radius}m)`
+    );
+  } else {
+    info.textContent = `켜면 "${prevItem.place.name}" 기준 반경 ${radius}m 안에서 검색 (지금은 꺼짐 — 원래 위치 기준)`;
+    renderSearchArea(
+      item.place.longitude, item.place.latitude, DEFAULT_RADIUS_METERS,
+      `"${item.place.name}" 주변 반경 ${DEFAULT_RADIUS_METERS}m에서 검색`
+    );
+  }
 }
 
 const CONTENT_TYPE_LABELS = {
@@ -1283,6 +1316,7 @@ document.getElementById("chk-prev-radius").addEventListener("change", () => {
 document.getElementById("btn-close-recommend").addEventListener("click", () => {
   document.getElementById("recommend-panel").style.display = "none";
   recommendLayer.clearLayers();
+  searchAreaLayer.clearLayers();
 });
 
 document.getElementById("btn-run-recommend").addEventListener("click", async () => {
