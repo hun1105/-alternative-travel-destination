@@ -112,6 +112,38 @@
     margin-left: 6px; vertical-align: middle; white-space: nowrap;
   }
   .search-result .meta.distance { color: var(--accent); font-weight: 600; }
+  /* 추천 후보 카드: 이름/점수, 이동정보, 소개문을 각각 구분되는
+     칸으로 나눠서 한눈에 훑어볼 수 있게 한다. */
+  .rec-card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 8px; }
+  .rec-card-rank {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+    color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .rec-card-title { font-weight: 700; font-size: 16px; }
+  .rec-card-score {
+    font-size: 12px; font-weight: 600; color: var(--accent); background: #eef3fd;
+    border-radius: 10px; padding: 2px 9px;
+  }
+  .rec-card-meta {
+    display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted);
+    background: var(--bg); border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;
+  }
+  .rec-card-desc {
+    font-size: 13px; color: #333a45; line-height: 1.55; background: #fffaf0;
+    border: 1px solid #f0e0b8; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px;
+  }
+  .rec-card-desc .rec-detail-btn { display: inline-block; margin-top: 6px; }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20, 24, 32, .55);
+    display: none; align-items: center; justify-content: center; z-index: 10000; padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-box {
+    background: #fff; border-radius: 12px; padding: 20px; max-width: 480px; width: 100%;
+    max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0, 0, 0, .35);
+  }
+  .modal-box h2 { margin: 0 0 12px; padding: 0; border-top: none; font-size: 19px; }
+  .modal-body { font-size: 15px; line-height: 1.75; color: #262b33; white-space: pre-wrap; }
   .schedule-item { position: relative; }
   .schedule-item .badge {
     position: absolute; top: -9px; left: -9px; width: 24px; height: 24px; border-radius: 50%;
@@ -257,6 +289,13 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="modal-overlay" id="detail-modal-overlay">
+  <div class="modal-box">
+    <button type="button" class="small" id="btn-close-modal" style="float:right;">닫기</button>
+    <h2 id="modal-title"></h2>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -288,6 +327,23 @@ function toast(msg) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.classList.remove("show"), 3200);
 }
+
+// ---------- 장소 설명 전체보기 팝업 ----------
+function openDetailModal(name, text) {
+  document.getElementById("modal-title").textContent = name;
+  document.getElementById("modal-body").textContent = text;
+  document.getElementById("detail-modal-overlay").classList.add("show");
+}
+function closeDetailModal() {
+  document.getElementById("detail-modal-overlay").classList.remove("show");
+}
+document.getElementById("btn-close-modal").addEventListener("click", closeDetailModal);
+document.getElementById("detail-modal-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "detail-modal-overlay") closeDetailModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeDetailModal();
+});
 
 async function apiGet(path, params) {
   const url = new URL(apiBase() + path);
@@ -1384,14 +1440,33 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
       const categoryMatches = (body.preferred_cat2 && cand.cat2 === body.preferred_cat2)
         || (body.preferred_lcls2 && cand.lcls2 === body.preferred_lcls2);
       const categoryBadge = categoryMatches
-        ? `<span style="color:var(--ok);font-weight:600;">· 비슷한 카테고리</span>` : "";
+        ? `<span class="category-badge" style="background:#e8f8ee;color:var(--ok);border-color:#bfe8cf;">비슷한 카테고리</span>` : "";
       // TMAP 소개문이 관광공사 개요보다 짧고 캐주얼해서 우선 쓰고,
-      // 없는 장소(예: DDP)는 관광공사 개요로 대체한다.
-      const overviewText = truncateText(cand.tmap_desc || cand.overview, 90);
-      card.innerHTML = `<div class="title">${cand.rank}. ${escapeHtml(cand.title)} (점수 ${cand.score}) ${categoryBadge}</div>
-        <div class="meta">${escapeHtml(cand.address || "")}</div>
-        <div class="meta">이동 ${cand.route_minutes}분 · 혼잡도 ${escapeHtml(cand.crowd?.label || "정보없음")}</div>
-        ${overviewText ? `<div class="meta">${escapeHtml(overviewText)}</div>` : ""}`;
+      // 없는 장소(예: DDP)는 관광공사 개요로 대체한다. 이름/점수/이동정보와
+      // 소개문을 별도 칸으로 나눠서 한눈에 구분되게 한다.
+      const shortDesc = truncateText(cand.tmap_desc || cand.overview, 90);
+      const hasFullOverview = !!(cand.overview && cand.overview.trim());
+      card.innerHTML = `
+        <div class="rec-card-header">
+          <span class="rec-card-rank">${cand.rank}</span>
+          <span class="rec-card-title">${escapeHtml(cand.title)}</span>
+          <span class="rec-card-score">${cand.score}점</span>
+          ${categoryBadge}
+        </div>
+        <div class="rec-card-meta">
+          <span>📍 ${escapeHtml(cand.address || "주소 정보 없음")}</span>
+          <span>🚶 이동 ${cand.route_minutes}분</span>
+          <span>👥 혼잡도 ${escapeHtml(cand.crowd?.label || "정보없음")}</span>
+        </div>
+        ${shortDesc ? `
+          <div class="rec-card-desc">
+            ${escapeHtml(shortDesc)}
+            ${hasFullOverview ? `<button type="button" class="small rec-detail-btn">관광공사 설명 전체보기</button>` : ""}
+          </div>` : ""}`;
+      const detailBtn = card.querySelector(".rec-detail-btn");
+      if (detailBtn) {
+        detailBtn.addEventListener("click", () => openDetailModal(cand.title, cand.overview));
+      }
       const btn = document.createElement("button");
       btn.className = "small primary";
       btn.textContent = "이 후보로 교체";
