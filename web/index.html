@@ -186,7 +186,7 @@
   <div id="sidebar">
     <div id="sidebar-handle"><div class="bar"></div></div>
     <div id="sidebar-scroll">
-    <input type="hidden" id="api-base" value="http://127.0.0.1:8000">
+    <input type="hidden" id="api-base" value="https://alternative-travel-destination.onrender.com">
 
     <h2>여행 정보</h2>
     <label>제목</label>
@@ -1529,8 +1529,13 @@ async function applyReplacement(itemId, candidate) {
 
 // ---------- 초기화 ----------
 (function init() {
-  // 서버가 이 페이지를 직접 서빙 중이면(같은 origin) API 주소를 자동으로 맞춘다.
-  if (location.protocol !== "file:") {
+  // 백엔드가 이 페이지를 직접 서빙 중이면(로컬 개발, Render 자체 서빙) 같은 origin을 쓴다.
+  // Vercel 등 프론트만 별도 도메인에 올라간 경우엔 위 api-base 기본값(Render 주소)을 그대로 쓴다.
+  const isSameOriginBackend =
+    location.protocol !== "file:" &&
+    (["localhost", "127.0.0.1"].includes(location.hostname) ||
+      location.hostname.endsWith(".onrender.com"));
+  if (isSameOriginBackend) {
     document.getElementById("api-base").value = location.origin;
   }
   document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
