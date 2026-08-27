@@ -386,10 +386,10 @@ async function apiPut(path, body) {
 
 // ---------- 지도 ----------
 const map = L.map("map").setView([37.5665, 126.9780], 13);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-  maxZoom: 20,
-  subdomains: "abcd",
-  attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  subdomains: "abc",
+  attribution: "&copy; OpenStreetMap contributors",
 }).addTo(map);
 
 const scheduleLayer = L.layerGroup().addTo(map);
