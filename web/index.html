@@ -1442,10 +1442,11 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
       const categoryBadge = categoryMatches
         ? `<span class="category-badge" style="background:#e8f8ee;color:var(--ok);border-color:#bfe8cf;">비슷한 카테고리</span>` : "";
       // TMAP 소개문이 관광공사 개요보다 짧고 캐주얼해서 우선 쓰고,
-      // 없는 장소(예: DDP)는 관광공사 개요로 대체한다. 이름/점수/이동정보와
-      // 소개문을 별도 칸으로 나눠서 한눈에 구분되게 한다.
-      const shortDesc = truncateText(cand.tmap_desc || cand.overview, 90);
-      const hasFullOverview = !!(cand.overview && cand.overview.trim());
+      // 없는 장소(예: DDP)는 관광공사 개요로 대체한다. "전체보기" 팝업도
+      // 같은 우선순위로 보여준다 — 카드에서 잘린 걸 그대로 이어서 보는
+      // 느낌이 되도록. 이름/점수/이동정보와 소개문은 별도 칸으로 나눈다.
+      const fullDescText = (cand.tmap_desc || cand.overview || "").trim();
+      const shortDesc = truncateText(fullDescText, 90);
       card.innerHTML = `
         <div class="rec-card-header">
           <span class="rec-card-rank">${cand.rank}</span>
@@ -1461,11 +1462,11 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
         ${shortDesc ? `
           <div class="rec-card-desc">
             ${escapeHtml(shortDesc)}
-            ${hasFullOverview ? `<button type="button" class="small rec-detail-btn">관광공사 설명 전체보기</button>` : ""}
+            ${fullDescText.length > shortDesc.length ? `<button type="button" class="small rec-detail-btn">설명 전체보기</button>` : ""}
           </div>` : ""}`;
       const detailBtn = card.querySelector(".rec-detail-btn");
       if (detailBtn) {
-        detailBtn.addEventListener("click", () => openDetailModal(cand.title, cand.overview));
+        detailBtn.addEventListener("click", () => openDetailModal(cand.title, fullDescText));
       }
       const btn = document.createElement("button");
       btn.className = "small primary";
