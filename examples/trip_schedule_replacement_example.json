@@ -1,0 +1,14 @@
+{
+  "item_id": "stop-1",
+  "visit_minutes": 45,
+  "place": {
+    "provider": "tmap",
+    "place_id": "22019636",
+    "name": "대한민국역사박물관",
+    "longitude": 126.977,
+    "latitude": 37.5738,
+    "address": "서울 종로구 세종대로 198",
+    "category": "박물관",
+    "phone": ""
+  }
+}

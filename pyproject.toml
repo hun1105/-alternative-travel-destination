@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plan-b-api"
+version = "0.1.0"
+description = "Plan B 관광 데이터 API 클라이언트"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+# tests_e2e/의 브라우저 자동 테스트 전용. 앱 실행에는 필요 없다.
+e2e = ["playwright>=1.62"]
+
+[project.scripts]
+plan-b-api = "plan_b_api.cli:main"
+plan-b-server = "plan_b_api.server:main"
+plan-b-scenarios = "plan_b_api.scenario_runner:main"

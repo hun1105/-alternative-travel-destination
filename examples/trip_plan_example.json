@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "title": "서울 역사 여행",
+  "trip_date": "2026-08-07",
+  "start_time": "10:00",
+  "walking_to_bus_threshold_minutes": 15,
+  "schedules": [
+    {
+      "item_id": "stop-1",
+      "visit_minutes": 60,
+      "fixed_arrival_time": null,
+      "locked": false,
+      "place": {
+        "provider": "tmap",
+        "place_id": "11040755",
+        "name": "경복궁",
+        "longitude": 126.9767,
+        "latitude": 37.576,
+        "address": "서울 종로구 사직로 161",
+        "category": "고궁",
+        "phone": ""
+      }
+    }
+  ]
+}
