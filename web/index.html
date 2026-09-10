@@ -1680,7 +1680,7 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
     body.next_title = nextLocked.place.name;
   }
   const resultsEl = document.getElementById("recommend-results");
-  resultsEl.innerHTML = "<div class='meta'>추천 계산 중... (몇 초 걸릴 수 있음)</div>";
+  resultsEl.innerHTML = "<div class='meta'>추천 계산 중...</div>";
   recommendLayer.clearLayers();
   try {
     const data = await apiPost("/recommendations", body);
