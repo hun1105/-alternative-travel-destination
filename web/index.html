@@ -1308,6 +1308,14 @@ function setupDemoScenarios() {
   const familyBtn = document.getElementById("btn-demo-family");
   if (rainBtn) {
     rainBtn.addEventListener("click", async () => {
+      state.tripId = null;
+      state.tripVersion = null;
+      state.legRoutes = {};
+      document.getElementById("share-box").style.display = "none";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("trip");
+      history.replaceState(null, "", url);
+
       document.getElementById("trip-title").value = "서울 종로 역사 탐방 (우천 시나리오)";
       document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
       document.getElementById("trip-start").value = "10:00";
@@ -1372,6 +1380,14 @@ function setupDemoScenarios() {
 
   if (familyBtn) {
     familyBtn.addEventListener("click", async () => {
+      state.tripId = null;
+      state.tripVersion = null;
+      state.legRoutes = {};
+      document.getElementById("share-box").style.display = "none";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("trip");
+      history.replaceState(null, "", url);
+
       document.getElementById("trip-title").value = "아이 동반 도심 나들이 (피로 복구)";
       document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
       document.getElementById("trip-start").value = "10:00";
@@ -1386,16 +1402,16 @@ function setupDemoScenarios() {
         {
           item_id: nextItemId(),
           place: {
-            provider: "kto", place_id: "126508", name: "서울어린이대공원",
+            provider: "kto", place_id: "126509", name: "서울어린이대공원",
             longitude: 127.0817, latitude: 37.5499,
             address: "서울특별시 광진구 능동로 216",
             category: "관광지", phone: "02-450-9311",
             cat1: "A02", cat2: "A0201", cat3: "A02010800",
             lcls1: "관광", lcls2: "휴양관광지", lcls3: "공원",
-            kto_content_id: "126508", kto_content_type_id: "12"
+            kto_content_id: "126509", kto_content_type_id: "12"
           },
-          visit_minutes: 120,
-          fixed_arrival_time: "10:30",
+          visit_minutes: 60,
+          fixed_arrival_time: "10:00",
           locked: false,
         },
         {
@@ -1405,9 +1421,11 @@ function setupDemoScenarios() {
             longitude: 127.0987, latitude: 37.5510,
             address: "서울특별시 광진구 워커힐로 177",
             category: "관광지", phone: "",
+            cat1: "A02", cat2: "A0201", cat3: "A02010800",
+            lcls1: "관광", lcls2: "휴양관광지", lcls3: "공원",
             kto_content_id: "127890", kto_content_type_id: "12"
           },
-          visit_minutes: 60,
+          visit_minutes: 45,
           fixed_arrival_time: null,
           locked: false,
         },
@@ -1676,7 +1694,7 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
     body.next_longitude = nextLocked.place.longitude;
     body.next_latitude = nextLocked.place.latitude;
     body.next_arrival_time = `${dateStr}T${nextLocked.fixed_arrival_time}`;
-    body.visit_minutes = nextLocked.visit_minutes;
+    body.visit_minutes = item.visit_minutes || 45;
     body.next_title = nextLocked.place.name;
   }
   const resultsEl = document.getElementById("recommend-results");
