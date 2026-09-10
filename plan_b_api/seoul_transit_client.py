@@ -403,7 +403,7 @@ def _parse_public_data_portal_transit(
         if cd != "0":
             if "XML Parsing Error" in msg or cd == "1":
                 raise SeoulTransitApiError(
-                    f"서울시 대중교통 경로 오류 ({cd}): 환승 노선이 없거나 도보 이동이 적합한 근거리 구간입니다. ({msg or 'XML Parsing Error'})"
+                    f"대중교통 환승 노선이 없습니다. ({msg or 'XML Parsing Error'})"
                 )
             raise SeoulTransitApiError(
                 f"서울시 대중교통 경로 오류 ({cd}): {msg or '경로를 찾을 수 없습니다.'}"
@@ -428,7 +428,7 @@ def _parse_public_data_portal_transit(
     ]
     if not valid_items:
         raise SeoulTransitApiError(
-            "서울시 대중교통 경로 결과가 없습니다. (근거리 구간이거나 운행 노선 없음)"
+            "대중교통 환승 노선이 없습니다."
         )
 
     # 경로 정렬 기준 (fastest: 최단시간 우선 / least_transfers: 최소환승 우선)

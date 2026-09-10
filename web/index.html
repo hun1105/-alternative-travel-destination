@@ -1059,7 +1059,7 @@ async function fetchLeg(idx, mode) {
   try {
     const data = await apiGet(pathByMode[mode], params);
     state.legRoutes[from.item_id] = {
-      mode: data.is_walking_fallback ? "대중교통(도보권)" : labelByMode[mode],
+      mode: data.is_walking_fallback ? "도보(500m 이내)" : labelByMode[mode],
       duration_minutes: data.duration_minutes,
       distance_meters: data.distance_meters || 0,
       geometry: data.geometry || null,
@@ -1069,7 +1069,7 @@ async function fetchLeg(idx, mode) {
     state.lastRouteMode = mode;
     renderSchedule();
     if (data.is_walking_fallback) {
-      toast(data.notice || `근거리 구간(도보 ${data.duration_minutes}분)입니다.`);
+      toast(data.notice || `500m 이내 근거리 구간(도보 ${data.duration_minutes}분)입니다.`);
     } else {
       toast(`${labelByMode[mode]} 경로: ${data.duration_minutes}분`);
     }
@@ -1094,7 +1094,7 @@ async function fetchLeg(idx, mode) {
   } catch (err) {
     let msg = err.message || "경로를 찾을 수 없습니다.";
     if (msg.includes("XML Parsing Error")) {
-      msg = "대중교통 환승 노선이 없거나 도보 이동이 적합한 근거리 구간입니다.";
+      msg = "대중교통(버스·지하철) 환승 노선이 없습니다.";
     }
     toast("경로 조회 실패: " + msg);
   }

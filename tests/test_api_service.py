@@ -278,12 +278,12 @@ class ApiServiceTests(unittest.TestCase):
                 "end_y": 37.5810,
             })
             self.assertTrue(result["is_walking_fallback"])
-            self.assertEqual(result["route_type"], "도보 권장")
+            self.assertEqual(result["route_type"], "도보 권장 (500m 이내)")
             self.assertEqual(result["transfer_count"], 0)
             self.assertGreater(result["duration_minutes"], 0)
             self.assertEqual(len(result["legs"]), 1)
             self.assertEqual(result["legs"][0]["mode"], "도보")
-            self.assertIn("대중교통 대신 도보 경로를 안내합니다", result["notice"])
+            self.assertIn("도보 경로를 안내합니다", result["notice"])
 
 
 if __name__ == "__main__":

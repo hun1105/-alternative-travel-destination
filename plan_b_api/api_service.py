@@ -635,11 +635,11 @@ class PlanBApiService:
 
         dist_meters = _haversine_distance_meters(start_x, start_y, end_x, end_y)
 
-        # 공공데이터포털 환승 API는 단거리(약 750m 이내) 조회 시 탑승 노선이 없어 XML Parsing Error를 반환함.
-        # 따라서 750m 이내 도보권 구간은 도보 경로로 자동 안내한다.
-        is_short_distance = dist_meters <= 750.0
+        # 500m 이내 근거리인 경우만 도보 경로로 안내한다.
+        is_short_distance = dist_meters <= 500.0
 
         if not is_short_distance:
+            # 500m 초과인 경우 대중교통 API를 호출하며, 실패 시 도보로 자동 대체하지 않고 오류를 반환한다.
             try:
                 route, source = cached_seoul_transit_route(
                     SeoulTransitClient.from_env(),
@@ -664,11 +664,13 @@ class PlanBApiService:
                     "is_walking_fallback": False,
                     "api_calls": stats.total_api_calls,
                 }
-            except SeoulTransitApiError:
-                if dist_meters > 1500.0:
-                    raise
+            except SeoulTransitApiError as exc:
+                clean_err = str(exc)
+                if "XML Parsing Error" in clean_err:
+                    clean_err = "해당 구간을 연결하는 대중교통(버스·지하철) 환승 노선이 없습니다."
+                raise SeoulTransitApiError(clean_err) from exc
 
-        # 도보 경로로 폴백 (TMap 보행자 경로 또는 직선거리 근사)
+        # 500m 이내 근거리 구간 도보 안내
         try:
             walk_data = self.walking_route(query)
             walk_mins = float(walk_data["duration_minutes"])
@@ -686,7 +688,7 @@ class PlanBApiService:
 
         fallback_leg = {
             "mode": "도보",
-            "instruction": f"근거리 구간 ({int(walk_dist)}m) 도보 이동 권장",
+            "instruction": f"500m 이내 근거리 구간 ({int(walk_dist)}m) 도보 이동 권장",
             "lane_name": None,
             "start_name": str(query.get("start_name") or "출발지"),
             "end_name": str(query.get("end_name") or "도착지"),
@@ -713,13 +715,13 @@ class PlanBApiService:
             "walking_minutes": walk_mins,
             "walking_distance_meters": walk_dist,
             "transfer_count": 0,
-            "route_type": "도보 권장",
+            "route_type": "도보 권장 (500m 이내)",
             "geometry": walk_geom,
             "legs": [fallback_leg],
-            "source": "도보 이동 권장 (근거리 구간)",
+            "source": "도보 이동 권장 (500m 이내)",
             "within_30_minutes": walk_mins <= 30,
             "is_walking_fallback": True,
-            "notice": f"출발지와 목적지가 가까워(직선 {int(dist_meters)}m, 도보 약 {round(walk_mins)}분) 대중교통 대신 도보 경로를 안내합니다.",
+            "notice": f"출발지와 목적지가 500m 이내(직선 {int(dist_meters)}m, 도보 약 {round(walk_mins)}분)로 가까워 도보 경로를 안내합니다.",
             "api_calls": stats.total_api_calls,
         }
 
