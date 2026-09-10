@@ -110,7 +110,24 @@
   .card { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fafbfc; }
   .card .title { font-weight: 600; margin-bottom: 3px; font-size: 16px; }
   .card .meta { font-size: 13px; color: var(--muted); }
-  .search-result { display: flex; justify-content: space-between; align-items: center; }
+  .search-result { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .search-result > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .search-result .search-add-btn,
+  .search-result button.small.primary {
+    flex: 0 0 92px !important;
+    width: 92px !important;
+    min-width: 92px !important;
+    max-width: 92px !important;
+    height: 38px !important;
+    white-space: nowrap !important;
+    padding: 0 8px !important;
+    font-size: 13px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    text-align: center !important;
+  }
   .category-badge {
     display: inline-block; background: #eef3fd; color: var(--accent); border: 1px solid #c9dbf7;
     border-radius: 12px; padding: 2px 9px; font-size: 12px; font-weight: 700;
@@ -173,7 +190,7 @@
     padding: 4px 11px; margin: 3px 5px 3px 0; cursor: pointer; font-size: 14px;
   }
   .priority-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
-  #share-box { display: none; margin-top: 8px; }
+  #share-box { display: none; margin-top: 8px; background: #f0f7ff; border: 1px solid #c4deff; border-radius: 8px; padding: 10px; }
   #share-box input { font-size: 13px; }
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -184,6 +201,42 @@
   .toast.show { opacity: 0.95; }
   details summary { cursor: pointer; font-size: 14px; color: var(--muted); margin: 8px 0; }
   small.hint { color: var(--muted); display:block; margin-top:2px; }
+
+  /* 심사용 데모 프리셋 */
+  .demo-preset-box {
+    background: linear-gradient(135deg, #f0f6ff 0%, #e5f0ff 100%);
+    border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; margin-bottom: 16px;
+  }
+  .demo-preset-title {
+    font-size: 13px; font-weight: 700; color: #1e40af; margin-bottom: 8px; display: flex; align-items: center; gap: 4px;
+  }
+  .demo-preset-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .demo-btn {
+    flex: 1 1 calc(50% - 3px); min-width: 140px; padding: 7px 10px; font-size: 13px; font-weight: 600;
+    border-radius: 6px; border: 1px solid #93c5fd; background: #fff; color: #1e3a8a; cursor: pointer;
+    transition: all 0.15s ease; text-align: center;
+  }
+  .demo-btn:hover { background: #dbeafe; border-color: #60a5fa; }
+  .demo-btn.primary-demo { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .demo-btn.primary-demo:hover { background: #1d4ed8; }
+
+  /* 태그 뱃지 */
+  .badge-tag {
+    display: inline-block; font-size: 11px; font-weight: 600; border-radius: 10px;
+    padding: 2px 7px; margin-left: 5px; vertical-align: middle;
+  }
+  .outdoor-tag { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+  .indoor-tag { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+  .lock-tag { background: #fce7f3; color: #9d174d; border: 1px solid #fbcfe8; }
+
+  /* 추천 비교 뱃지 */
+  .rec-tier-badge {
+    display: inline-block; font-size: 12px; font-weight: 700; border-radius: 12px;
+    padding: 3px 10px; margin-right: 4px; vertical-align: middle;
+  }
+  .tier-best { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .tier-dist { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .tier-cost { background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe; }
 </style>
 </head>
 <body>
@@ -192,6 +245,14 @@
     <div id="sidebar-handle"><div class="bar"></div></div>
     <div id="sidebar-scroll">
     <input type="hidden" id="api-base" value="https://alternative-travel-destination.onrender.com">
+
+    <div class="demo-preset-box">
+      <div class="demo-preset-title">⚡ 심사용 실시간 돌발 시나리오</div>
+      <div class="demo-preset-btns">
+        <button type="button" class="demo-btn primary-demo" id="btn-demo-rain">🌧️ 경복궁 폭우 대체</button>
+        <button type="button" class="demo-btn" id="btn-demo-family">👶 가족 동반 피로 복구</button>
+      </div>
+    </div>
 
     <h2>여행 정보</h2>
     <label>제목</label>
@@ -209,7 +270,7 @@
     <label>도보→대중교통 전환 기준(분)</label>
     <input type="number" id="trip-threshold" value="15" min="1" max="60">
 
-    <details>
+    <details open id="pref-details">
       <summary>추천 선호 설정 (빈 자리 채울 때 사용)</summary>
       <div class="row">
         <div>
@@ -325,7 +386,17 @@ let seq = 1;
 let dragSrcIdx = null;
 function nextItemId() { return "stop-" + (seq++); }
 
-function apiBase() { return document.getElementById("api-base").value.replace(/\/$/, ""); }
+function apiBase() {
+  const el = document.getElementById("api-base");
+  const custom = el ? el.value.trim() : "";
+  if (custom && custom !== "https://alternative-travel-destination.onrender.com") {
+    return custom.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined" && window.location && window.location.protocol.startsWith("http")) {
+    return window.location.origin;
+  }
+  return custom ? custom.replace(/\/$/, "") : "http://127.0.0.1:8000";
+}
 
 function toast(msg) {
   const el = document.getElementById("toast");
@@ -654,6 +725,16 @@ function truncateText(text, maxLength) {
 }
 
 // ---------- 우선순위 ----------
+function refreshPriorityChips() {
+  document.querySelectorAll(".priority-chip").forEach((el) => {
+    const order = state.priorities.indexOf(el.dataset.field);
+    el.classList.toggle("selected", order >= 0);
+    const baseLabel = el.dataset.label || el.textContent.replace(/^\d+\.\s*/, "");
+    el.dataset.label = baseLabel;
+    el.textContent = order >= 0 ? `${order + 1}. ${baseLabel}` : baseLabel;
+  });
+}
+
 async function loadPriorities() {
   try {
     const data = await apiGet("/priorities");
@@ -663,27 +744,25 @@ async function loadPriorities() {
       const chip = document.createElement("span");
       chip.className = "priority-chip";
       chip.dataset.field = item.field;
+      chip.dataset.label = item.label;
       chip.textContent = item.label;
-      chip.addEventListener("click", () => togglePriority(item.field, chip));
+      chip.addEventListener("click", () => togglePriority(item.field));
       container.appendChild(chip);
     });
+    refreshPriorityChips();
   } catch (err) {
     // 서버 미연결 시 조용히 스킵 (연결 확인 버튼에서 안내됨)
   }
 }
-function togglePriority(field, chip) {
+
+function togglePriority(field) {
   const idx = state.priorities.indexOf(field);
   if (idx >= 0) {
     state.priorities.splice(idx, 1);
   } else {
     state.priorities.push(field);
   }
-  document.querySelectorAll(".priority-chip").forEach((el) => {
-    const order = state.priorities.indexOf(el.dataset.field);
-    el.classList.toggle("selected", order >= 0);
-    el.textContent = el.textContent.replace(/^\d+\.\s*/, "");
-    if (order >= 0) el.textContent = (order + 1) + ". " + el.textContent;
-  });
+  refreshPriorityChips();
 }
 
 // ---------- 장소 검색 ----------
@@ -715,7 +794,7 @@ async function runSearch() {
         <div class="meta distance">현재 지도 중심에서 약 ${distanceText}</div></div>`;
       const btn = document.createElement("button");
       btn.textContent = "일정에 추가";
-      btn.className = "small primary";
+      btn.className = "small primary search-add-btn";
       btn.addEventListener("click", () => addToSchedule(item));
       card.appendChild(btn);
       resultsEl.appendChild(card);
@@ -821,11 +900,23 @@ function renderSchedule() {
   state.schedules.forEach((item, idx) => {
     const card = document.createElement("div");
     card.className = "card schedule-item" + (item.locked ? " locked" : "");
+    let typeTag = "";
+    if (item.place.kto_content_type_id === "12") {
+      typeTag = `<span class="badge-tag outdoor-tag">야외 관광지</span>`;
+    } else if (item.place.kto_content_type_id === "14") {
+      typeTag = `<span class="badge-tag indoor-tag">실내 문화</span>`;
+    } else if (item.place.kto_content_type_id === "39") {
+      typeTag = `<span class="badge-tag outdoor-tag">음식점</span>`;
+    }
+    const lockTag = item.fixed_arrival_time
+      ? `<span class="badge-tag lock-tag">🔒 ${item.fixed_arrival_time} 고정</span>`
+      : "";
+
     card.innerHTML = `
       <span class="badge">${idx + 1}</span>
       <div class="schedule-header">
         <span class="drag-handle" draggable="true" title="드래그해서 순서 변경">⠿⠿</span>
-        <div class="title">${escapeHtml(item.place.name)}</div>
+        <div class="title">${escapeHtml(item.place.name)} ${typeTag} ${lockTag}</div>
       </div>
       <div class="meta">${escapeHtml(item.place.address || "")}</div>
       <div class="row" style="margin-top:6px;">
@@ -1152,9 +1243,11 @@ function buildTripPlanPayload() {
   };
 }
 
-document.getElementById("btn-save").addEventListener("click", async () => {
-  if (!state.schedules.length) { toast("일정을 먼저 추가하세요"); return; }
-  if (!document.getElementById("trip-date").value) { toast("날짜를 입력하세요"); return; }
+async function saveTripPlan() {
+  if (!state.schedules.length) { toast("일정을 먼저 추가하세요"); return null; }
+  if (!document.getElementById("trip-date").value) {
+    document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
+  }
   try {
     const payload = buildTripPlanPayload();
     if (state.tripId) {
@@ -1165,12 +1258,14 @@ document.getElementById("btn-save").addEventListener("click", async () => {
       state.tripVersion = data.version;
       showShareLink();
       toast("저장됨 (v" + data.version + ")");
+      return state.tripId;
     } else {
       const data = await apiPost("/trip-plans", payload);
       state.tripId = data.trip_id;
       state.tripVersion = data.version;
       showShareLink();
       toast("저장됨: " + data.trip_id);
+      return data.trip_id;
     }
   } catch (err) {
     if (err.status === 409) {
@@ -1179,8 +1274,11 @@ document.getElementById("btn-save").addEventListener("click", async () => {
     } else {
       toast("저장 실패: " + err.message);
     }
+    return null;
   }
-});
+}
+
+document.getElementById("btn-save").addEventListener("click", saveTripPlan);
 
 function showShareLink() {
   const box = document.getElementById("share-box");
@@ -1194,14 +1292,154 @@ function showShareLink() {
 document.getElementById("btn-copy-link").addEventListener("click", () => {
   const input = document.getElementById("share-url");
   input.select();
-  navigator.clipboard?.writeText(input.value).then(() => toast("링크 복사됨")).catch(() => toast("복사 실패, 직접 선택해서 복사하세요"));
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(input.value)
+      .then(() => toast("📋 공유 링크가 복사되었습니다"))
+      .catch(() => toast("복사 실패, 텍스트를 직접 복사하세요"));
+  } else {
+    document.execCommand("copy");
+    toast("📋 공유 링크가 복사되었습니다");
+  }
 });
+
+// ---------- 심사용 데모 시나리오 ----------
+function setupDemoScenarios() {
+  const rainBtn = document.getElementById("btn-demo-rain");
+  const familyBtn = document.getElementById("btn-demo-family");
+  if (rainBtn) {
+    rainBtn.addEventListener("click", async () => {
+      document.getElementById("trip-title").value = "서울 종로 역사 탐방 (우천 시나리오)";
+      document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("trip-start").value = "10:00";
+      document.getElementById("pref-party").value = "2";
+      document.getElementById("pref-children").value = "0";
+      document.getElementById("pref-budget").value = "50000";
+
+      state.priorities = ["weather_fit", "walking_fit"];
+      refreshPriorityChips();
+
+      state.schedules = [
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "kto", place_id: "126508", name: "경복궁 (야외 위험)",
+            longitude: 126.9767, latitude: 37.5760,
+            address: "서울특별시 종로구 사직로 161",
+            category: "관광지", phone: "02-3700-3900",
+            cat1: "A02", cat2: "A0201", cat3: "A02010100",
+            lcls1: "관광", lcls2: "역사관광지", lcls3: "고궁",
+            kto_content_id: "126508", kto_content_type_id: "12"
+          },
+          visit_minutes: 90,
+          fixed_arrival_time: "10:30",
+          locked: false,
+        },
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "kto", place_id: "2733967", name: "국립고궁박물관 (실내)",
+            longitude: 126.9749, latitude: 37.5765,
+            address: "서울특별시 종로구 효자로 12",
+            category: "문화시설", phone: "02-3701-7500",
+            cat1: "A02", cat2: "A0206", cat3: "A02060100",
+            lcls1: "문화", lcls2: "박물관", lcls3: "전문박물관",
+            kto_content_id: "2733967", kto_content_type_id: "14"
+          },
+          visit_minutes: 60,
+          fixed_arrival_time: null,
+          locked: false,
+        },
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "tmap", place_id: "restaurant-1", name: "토속촌 삼계탕",
+            longitude: 126.9718, latitude: 37.5777,
+            address: "서울특별시 종로구 자하문로5길 5",
+            category: "음식점 > 한식", phone: "02-737-7444",
+            kto_content_type_id: "39"
+          },
+          visit_minutes: 60,
+          fixed_arrival_time: "13:00",
+          locked: true,
+        }
+      ];
+      renderSchedule();
+      toast("🌧️ 경복궁 폭우 시나리오 로드됨 — 대체 추천을 실행합니다");
+      await saveTripPlan();
+      openGapFill(0);
+    });
+  }
+
+  if (familyBtn) {
+    familyBtn.addEventListener("click", async () => {
+      document.getElementById("trip-title").value = "아이 동반 도심 나들이 (피로 복구)";
+      document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("trip-start").value = "10:00";
+      document.getElementById("pref-party").value = "3";
+      document.getElementById("pref-children").value = "1";
+      document.getElementById("pref-budget").value = "30000";
+
+      state.priorities = ["child_fit", "route_time"];
+      refreshPriorityChips();
+
+      state.schedules = [
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "kto", place_id: "126508", name: "서울어린이대공원",
+            longitude: 127.0817, latitude: 37.5499,
+            address: "서울특별시 광진구 능동로 216",
+            category: "관광지", phone: "02-450-9311",
+            cat1: "A02", cat2: "A0201", cat3: "A02010800",
+            lcls1: "관광", lcls2: "휴양관광지", lcls3: "공원",
+            kto_content_id: "126508", kto_content_type_id: "12"
+          },
+          visit_minutes: 120,
+          fixed_arrival_time: "10:30",
+          locked: false,
+        },
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "kto", place_id: "127890", name: "아차산 생태공원 (도보 과다)",
+            longitude: 127.0987, latitude: 37.5510,
+            address: "서울특별시 광진구 워커힐로 177",
+            category: "관광지", phone: "",
+            kto_content_id: "127890", kto_content_type_id: "12"
+          },
+          visit_minutes: 60,
+          fixed_arrival_time: null,
+          locked: false,
+        },
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "tmap", place_id: "kids-cafe-1", name: "어린이 키즈플레이존",
+            longitude: 127.0850, latitude: 37.5450,
+            address: "서울특별시 광진구 능동로 180",
+            category: "문화시설", phone: "",
+            kto_content_type_id: "14"
+          },
+          visit_minutes: 90,
+          fixed_arrival_time: "14:00",
+          locked: true,
+        }
+      ];
+      renderSchedule();
+      toast("👶 아동 피로 복구 시나리오 로드됨 — 대체 추천을 실행합니다");
+      await saveTripPlan();
+      openGapFill(1);
+    });
+  }
+}
 
 document.getElementById("btn-new").addEventListener("click", () => {
   if (!confirm("현재 일정을 지우고 새로 시작할까요?")) return;
   state.tripId = null;
   state.tripVersion = null;
   state.schedules = [];
+  state.priorities = [];
+  refreshPriorityChips();
   state.legRoutes = {};
   document.getElementById("share-box").style.display = "none";
   const url = new URL(window.location.href);
@@ -1452,6 +1690,15 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
     list.forEach((cand) => {
       const card = document.createElement("div");
       card.className = "card";
+      let tierBadge = "";
+      if (cand.rank === 1) {
+        tierBadge = `<span class="rec-tier-badge tier-best">🏆 종합 최적</span>`;
+      } else if (cand.rank === 2) {
+        tierBadge = `<span class="rec-tier-badge tier-dist">🚶 최단 이동</span>`;
+      } else if (cand.rank === 3) {
+        tierBadge = `<span class="rec-tier-badge tier-cost">💰 최저 비용/대안</span>`;
+      }
+
       const categoryMatches = (body.preferred_cat2 && cand.cat2 === body.preferred_cat2)
         || (body.preferred_lcls2 && cand.lcls2 === body.preferred_lcls2);
       const categoryBadge = categoryMatches
@@ -1465,6 +1712,7 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
       card.innerHTML = `
         <div class="rec-card-header">
           <span class="rec-card-rank">${cand.rank}</span>
+          ${tierBadge}
           <span class="rec-card-title">${escapeHtml(cand.title)}</span>
           <span class="rec-card-score">${cand.score}점</span>
           ${categoryBadge}
@@ -1554,6 +1802,7 @@ async function applyReplacement(itemId, candidate) {
     document.getElementById("api-base").value = location.origin;
   }
   document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
+  setupDemoScenarios();
   loadPriorities();
   loadTripFromUrl();
   renderSchedule();
