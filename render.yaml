@@ -18,6 +18,8 @@ services:
         sync: false
       - key: SEOUL_OPEN_API_KEY
         sync: false
+      - key: SEOUL_TRANSIT_SERVICE_KEY
+        sync: false
       - key: ODSAY_API_KEY
         sync: false
       - key: KTO_MOBILE_APP

@@ -274,7 +274,11 @@ class PlanBApiService:
                 "seoul_crowd_api": bool(
                     os.getenv("SEOUL_OPEN_API_KEY", "").strip()
                 ),
-                "seoul_transit_api": bool(os.getenv("ODSAY_API_KEY", "").strip()),
+                "seoul_transit_api": bool(
+                    os.getenv("SEOUL_TRANSIT_SERVICE_KEY", "").strip()
+                    or os.getenv("KTO_SERVICE_KEY", "").strip()
+                    or os.getenv("ODSAY_API_KEY", "").strip()
+                ),
             },
         }
 

@@ -204,7 +204,26 @@ class SeoulTransitClientTests(unittest.TestCase):
         def transport(url: str, timeout: float):
             captured["url"] = url
             captured["timeout"] = timeout
-            return 200, json.dumps(_odsay_payload(totalTime=20)).encode()
+            payload = {
+                "msgHeader": {"headerCd": "0", "headerMsg": ""},
+                "msgBody": {
+                    "itemList": [{
+                        "time": "20",
+                        "distance": "5000",
+                        "pathList": [{
+                            "routeNm": "273",
+                            "fname": "광화문",
+                            "fx": "126.97",
+                            "fy": "37.57",
+                            "tname": "혜화",
+                            "tx": "127.01",
+                            "ty": "37.59",
+                            "railLinkList": None,
+                        }],
+                    }],
+                },
+            }
+            return 200, json.dumps(payload).encode()
 
         client = SeoulTransitClient(
             SeoulTransitConfig("test-api-key", max_retries=0),
@@ -216,8 +235,113 @@ class SeoulTransitClientTests(unittest.TestCase):
         )
         query = parse_qs(urlparse(str(captured["url"])).query)
         self.assertEqual(route.duration_minutes, 20)
+        self.assertEqual(query["serviceKey"], ["test-api-key"])
+        self.assertEqual(query["startX"], ["126.9700000"])
+        self.assertEqual(query["resultType"], ["json"])
+
+    def test_builds_odsay_coordinate_request(self) -> None:
+        captured: dict[str, object] = {}
+
+        def transport(url: str, timeout: float):
+            captured["url"] = url
+            captured["timeout"] = timeout
+            return 200, json.dumps(_odsay_payload(totalTime=20)).encode()
+
+        client = SeoulTransitClient(
+            SeoulTransitConfig(
+                "test-api-key",
+                max_retries=0,
+                base_url="https://api.odsay.com/v1/api/searchPubTransPathT",
+            ),
+            transport=transport,
+        )
+        route = client.route(
+            start_x=126.97, start_y=37.57,
+            end_x=127.01, end_y=37.59,
+        )
+        query = parse_qs(urlparse(str(captured["url"])).query)
+        self.assertEqual(route.duration_minutes, 20)
         self.assertEqual(query["apiKey"], ["test-api-key"])
         self.assertEqual(query["SX"], ["126.9700000"])
+
+    def test_parses_public_data_portal_bus_and_subway(self) -> None:
+        payload = {
+            "msgHeader": {"headerCd": "0", "headerMsg": "정상"},
+            "msgBody": {
+                "itemList": [{
+                    "time": "35",
+                    "distance": "8500",
+                    "pathList": [
+                        {
+                            "routeNm": "9호선",
+                            "fname": "여의도역",
+                            "fx": "126.9242",
+                            "fy": "37.5215",
+                            "tname": "석촌",
+                            "tx": "127.1067",
+                            "ty": "37.5049",
+                            "railLinkList": [{"railLinkId": "1"}, {"railLinkId": "2"}],
+                        },
+                        {
+                            "routeNm": "320",
+                            "fname": "석촌호수",
+                            "fx": "127.1058",
+                            "fy": "37.5067",
+                            "tname": "잠실역",
+                            "tx": "127.1005",
+                            "ty": "37.5126",
+                            "railLinkList": None,
+                        },
+                    ],
+                }],
+            },
+        }
+        route = parse_seoul_transit_response(json.dumps(payload).encode())
+        self.assertEqual(route.duration_minutes, 35)
+        self.assertEqual(route.distance_meters, 8500)
+        self.assertEqual(route.transfer_count, 1)
+        self.assertEqual(route.route_type, "9호선 → 320")
+        self.assertEqual(len(route.legs), 5)  # walk1, subway, transfer_walk, bus, walk2
+        self.assertEqual(route.legs[1].mode, "지하철")
+        self.assertEqual(route.legs[1].station_count, 2)
+        self.assertEqual(route.legs[2].mode, "도보")
+        self.assertIn("환승 이동", route.legs[2].instruction)
+        self.assertEqual(route.legs[3].mode, "버스")
+
+    def test_selects_fastest_route_when_multiple(self) -> None:
+        payload = {
+            "msgHeader": {"headerCd": "0", "headerMsg": "정상"},
+            "msgBody": {
+                "itemList": [
+                    {
+                        "time": "40",
+                        "distance": "9000",
+                        "pathList": [{"routeNm": "100", "fname": "A", "fx": "126.9", "fy": "37.5", "tname": "B", "tx": "127.0", "ty": "37.6"}],
+                    },
+                    {
+                        "time": "22",  # fastest!
+                        "distance": "7000",
+                        "pathList": [{"routeNm": "200", "fname": "A", "fx": "126.9", "fy": "37.5", "tname": "B", "tx": "127.0", "ty": "37.6"}],
+                    },
+                    {
+                        "time": "30",
+                        "distance": "8000",
+                        "pathList": [{"routeNm": "300", "fname": "A", "fx": "126.9", "fy": "37.5", "tname": "B", "tx": "127.0", "ty": "37.6"}],
+                    },
+                ],
+            },
+        }
+        route = parse_seoul_transit_response(json.dumps(payload).encode())
+        self.assertEqual(route.duration_minutes, 22)
+        self.assertEqual(route.route_type, "200")
+
+    def test_raises_on_public_data_portal_error(self) -> None:
+        payload = {
+            "msgHeader": {"headerCd": "1", "headerMsg": "XML Parsing Error"},
+            "msgBody": {"itemList": None},
+        }
+        with self.assertRaisesRegex(Exception, "XML Parsing Error"):
+            parse_seoul_transit_response(json.dumps(payload).encode())
 
 
 if __name__ == "__main__":
