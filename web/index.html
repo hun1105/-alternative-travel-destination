@@ -212,7 +212,7 @@
   }
   .demo-preset-btns { display: flex; gap: 6px; flex-wrap: wrap; }
   .demo-btn {
-    flex: 1 1 calc(50% - 3px); min-width: 140px; padding: 7px 10px; font-size: 13px; font-weight: 600;
+    flex: 1 1 calc(33.3% - 4px); min-width: 105px; padding: 7px 6px; font-size: 12px; font-weight: 600;
     border-radius: 6px; border: 1px solid #93c5fd; background: #fff; color: #1e3a8a; cursor: pointer;
     transition: all 0.15s ease; text-align: center;
   }
@@ -250,7 +250,8 @@
       <div class="demo-preset-title">⚡ 심사용 실시간 돌발 시나리오</div>
       <div class="demo-preset-btns">
         <button type="button" class="demo-btn primary-demo" id="btn-demo-rain">🌧️ 경복궁 폭우 대체</button>
-        <button type="button" class="demo-btn" id="btn-demo-family">👶 가족 동반 피로 복구</button>
+        <button type="button" class="demo-btn" id="btn-demo-family">👶 가족 피로 복구</button>
+        <button type="button" class="demo-btn" id="btn-demo-tight" style="color:#b91c1c;border-color:#fca5a5;">⏱️ 촉박한 마감 (0개 탈락)</button>
       </div>
     </div>
 
@@ -1449,6 +1450,79 @@ function setupDemoScenarios() {
       openGapFill(1);
     });
   }
+
+  const tightBtn = document.getElementById("btn-demo-tight");
+  if (tightBtn) {
+    tightBtn.addEventListener("click", async () => {
+      state.tripId = null;
+      state.tripVersion = null;
+      state.legRoutes = {};
+      document.getElementById("share-box").style.display = "none";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("trip");
+      history.replaceState(null, "", url);
+
+      document.getElementById("trip-title").value = "시간 촉박 시나리오 (0개 탈락 시연)";
+      document.getElementById("trip-date").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("trip-start").value = "10:00";
+      document.getElementById("pref-party").value = "2";
+      document.getElementById("pref-children").value = "0";
+      document.getElementById("pref-budget").value = "30000";
+
+      state.priorities = ["route_time", "walking_fit"];
+      refreshPriorityChips();
+
+      state.schedules = [
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "kto", place_id: "126508", name: "경복궁 (12:00 종료)",
+            longitude: 126.9767, latitude: 37.5760,
+            address: "서울특별시 종로구 사직로 161",
+            category: "관광지", phone: "02-3700-3900",
+            cat1: "A02", cat2: "A0201", cat3: "A02010100",
+            lcls1: "관광", lcls2: "역사관광지", lcls3: "고궁",
+            kto_content_id: "126508", kto_content_type_id: "12"
+          },
+          visit_minutes: 90,
+          fixed_arrival_time: "10:30",
+          locked: false,
+        },
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "kto", place_id: "2733967", name: "국립고궁박물관 (시간 촉박 대체지)",
+            longitude: 126.9749, latitude: 37.5765,
+            address: "서울특별시 종로구 효자로 12",
+            category: "문화시설", phone: "02-3701-7500",
+            cat1: "A02", cat2: "A0206", cat3: "A02060100",
+            lcls1: "문화", lcls2: "박물관", lcls3: "전문박물관",
+            kto_content_id: "2733967", kto_content_type_id: "14"
+          },
+          visit_minutes: 45,
+          fixed_arrival_time: null,
+          locked: false,
+        },
+        {
+          item_id: nextItemId(),
+          place: {
+            provider: "tmap", place_id: "restaurant-1", name: "토속촌 삼계탕 (12:20 예약 마감)",
+            longitude: 126.9718, latitude: 37.5777,
+            address: "서울특별시 종로구 자하문로5길 5",
+            category: "음식점 > 한식", phone: "02-737-7444",
+            kto_content_type_id: "39"
+          },
+          visit_minutes: 60,
+          fixed_arrival_time: "12:20",
+          locked: true,
+        }
+      ];
+      renderSchedule();
+      toast("⏱️ 시간 촉박 시나리오 로드됨 — 대체 추천을 실행합니다");
+      await saveTripPlan();
+      openGapFill(1);
+    });
+  }
 }
 
 document.getElementById("btn-new").addEventListener("click", () => {
@@ -1496,7 +1570,11 @@ async function loadTripFromUrl() {
     await loadTripById(tripId);
     toast("일정을 불러왔습니다: " + tripId);
   } catch (err) {
-    toast("일정 불러오기 실패: " + err.message);
+    console.warn("일정 불러오기 실패:", err);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("trip");
+    history.replaceState(null, "", url);
+    toast("이전 링크 일정이 만료되어 새로운 일정으로 시작합니다");
   }
 }
 
