@@ -335,6 +335,38 @@ class SeoulTransitClientTests(unittest.TestCase):
         self.assertEqual(route.duration_minutes, 22)
         self.assertEqual(route.route_type, "200")
 
+    def test_selects_least_transfers_route_when_requested(self) -> None:
+        payload = {
+            "msgHeader": {"headerCd": "0", "headerMsg": "정상"},
+            "msgBody": {
+                "itemList": [
+                    {
+                        "time": "20",  # faster, but 1 transfer (2 paths)
+                        "distance": "5000",
+                        "pathList": [
+                            {"routeNm": "100", "fname": "A", "fx": "126.9", "fy": "37.5", "tname": "B", "tx": "127.0", "ty": "37.6"},
+                            {"routeNm": "200", "fname": "B", "fx": "127.0", "fy": "37.6", "tname": "C", "tx": "127.1", "ty": "37.7"},
+                        ],
+                    },
+                    {
+                        "time": "26",  # slower, but direct (1 path)
+                        "distance": "6000",
+                        "pathList": [
+                            {"routeNm": "DirectBus", "fname": "A", "fx": "126.9", "fy": "37.5", "tname": "C", "tx": "127.1", "ty": "37.7"},
+                        ],
+                    },
+                ],
+            },
+        }
+        body = json.dumps(payload).encode()
+        fastest_route = parse_seoul_transit_response(body, routing_preference="fastest")
+        self.assertEqual(fastest_route.duration_minutes, 20)
+        self.assertEqual(fastest_route.route_type, "100 → 200")
+
+        direct_route = parse_seoul_transit_response(body, routing_preference="least_transfers")
+        self.assertEqual(direct_route.duration_minutes, 26)
+        self.assertEqual(direct_route.route_type, "DirectBus")
+
     def test_raises_on_public_data_portal_error(self) -> None:
         payload = {
             "msgHeader": {"headerCd": "1", "headerMsg": "XML Parsing Error"},

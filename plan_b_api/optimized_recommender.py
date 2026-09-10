@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
@@ -68,7 +69,7 @@ ROUTE_TTL_SECONDS = 24 * 60 * 60
 CROWD_PLACES_TTL_SECONDS = 24 * 60 * 60
 CROWD_REALTIME_TTL_SECONDS = 10 * 60
 SEOUL_CROWD_TTL_SECONDS = 5 * 60
-SEOUL_TRANSIT_TTL_SECONDS = 30 * 60
+SEOUL_TRANSIT_TTL_SECONDS = int(os.getenv("SEOUL_TRANSIT_TTL_SECONDS", 2 * 60 * 60))
 CAR_ROUTE_TTL_SECONDS = 5 * 60
 WALKING_LIMIT_REASON = "도보 이동시간이 최대 허용시간을 초과함"
 
@@ -354,9 +355,11 @@ def cached_seoul_transit_route(
     start_y: float,
     end_x: float,
     end_y: float,
+    routing_preference: str = "fastest",
 ) -> tuple[SeoulTransitRoute, str]:
+    pref_tag = f":{routing_preference}" if routing_preference != "fastest" else ""
     key = (
-        f"seoul-transit:{start_x:.5f}:{start_y:.5f}:"
+        f"seoul-transit{pref_tag}:{start_x:.5f}:{start_y:.5f}:"
         f"{end_x:.5f}:{end_y:.5f}"
     )
     entry = cache.get(key)
@@ -371,6 +374,7 @@ def cached_seoul_transit_route(
             start_y=start_y,
             end_x=end_x,
             end_y=end_y,
+            routing_preference=routing_preference,
         )
     except SeoulTransitApiError:
         if entry:
@@ -550,6 +554,7 @@ def recommend_nearby_optimized(
     max_seoul_crowd_calls: int = 10,
     seoul_transit_client: SeoulTransitClient | None = None,
     max_seoul_transit_calls: int = 3,
+    transit_preference: str = "fastest",
     max_car_route_calls: int = 5,
     next_schedule: NextScheduleConstraint | None = None,
     include_restaurants: bool = False,
@@ -821,6 +826,7 @@ def recommend_nearby_optimized(
                         start_y=map_y,
                         end_x=place.longitude,
                         end_y=place.latitude,
+                        routing_preference=transit_preference,
                     )
                     inbound_geometry = transit.geometry
                     facts = replace(
@@ -1044,6 +1050,7 @@ def recommend_nearby_optimized(
                             start_y=place.latitude,
                             end_x=next_schedule.longitude,
                             end_y=next_schedule.latitude,
+                            routing_preference=transit_preference,
                         )
                         onward_minutes = onward_transit.duration_minutes
                         onward_mode = "transit"

@@ -394,6 +394,7 @@ def fill_walk_leg_endpoints(
 
 def _parse_public_data_portal_transit(
     payload: Mapping[str, Any],
+    routing_preference: str = "fastest",
 ) -> SeoulTransitRoute:
     header = payload.get("msgHeader")
     if isinstance(header, Mapping):
@@ -424,13 +425,21 @@ def _parse_public_data_portal_transit(
     if not valid_items:
         raise SeoulTransitApiError("서울시 대중교통 경로 결과가 없습니다.")
 
-    # Q2: 제일 빠른 경로 (최소 소요시간 time, 그 다음 최소 환승 횟수, 그 다음 최소 이동거리)
-    def _sort_key(it: Mapping[str, Any]) -> tuple[float, int, float]:
-        t = _optional_float(it.get("time")) or float("inf")
-        p = it.get("pathList")
-        p_len = len(p) if isinstance(p, list) else (1 if p else 0)
-        d = _optional_float(it.get("distance")) or float("inf")
-        return (t, p_len, d)
+    # 경로 정렬 기준 (fastest: 최단시간 우선 / least_transfers: 최소환승 우선)
+    if routing_preference == "least_transfers":
+        def _sort_key(it: Mapping[str, Any]) -> tuple[int, float, float]:
+            p = it.get("pathList")
+            p_len = len(p) if isinstance(p, list) else (1 if p else 0)
+            t = _optional_float(it.get("time")) or float("inf")
+            d = _optional_float(it.get("distance")) or float("inf")
+            return (p_len, t, d)
+    else:
+        def _sort_key(it: Mapping[str, Any]) -> tuple[float, int, float]:
+            t = _optional_float(it.get("time")) or float("inf")
+            p = it.get("pathList")
+            p_len = len(p) if isinstance(p, list) else (1 if p else 0)
+            d = _optional_float(it.get("distance")) or float("inf")
+            return (t, p_len, d)
 
     best = min(valid_items, key=_sort_key)
     duration = _optional_float(best.get("time"))
@@ -607,11 +616,31 @@ def _parse_public_data_portal_transit(
     )
 
 
-def _parse_odsay_transit(payload: Mapping[str, Any]) -> SeoulTransitRoute:
+def _parse_odsay_transit(
+    payload: Mapping[str, Any],
+    routing_preference: str = "fastest",
+) -> SeoulTransitRoute:
     result = payload.get("result")
     paths = (result or {}).get("path") if isinstance(result, Mapping) else None
     if not paths:
         raise SeoulTransitApiError("ODsay 대중교통 경로 결과가 없습니다.")
+
+    if routing_preference == "least_transfers":
+        def _odsay_sort_key(p: Mapping[str, Any]) -> tuple[int, float]:
+            info = p.get("info") or {}
+            transfers = (_optional_int(info.get("busTransitCount") or 0) or 0) + (
+                _optional_int(info.get("subwayTransitCount") or 0) or 0
+            )
+            total_time = _optional_float(info.get("totalTime")) or float("inf")
+            return (transfers, total_time)
+    else:
+        def _odsay_sort_key(p: Mapping[str, Any]) -> tuple[float, int]:
+            info = p.get("info") or {}
+            transfers = (_optional_int(info.get("busTransitCount") or 0) or 0) + (
+                _optional_int(info.get("subwayTransitCount") or 0) or 0
+            )
+            total_time = _optional_float(info.get("totalTime")) or float("inf")
+            return (total_time, transfers)
 
     best = min(
         (
@@ -620,7 +649,7 @@ def _parse_odsay_transit(payload: Mapping[str, Any]) -> SeoulTransitRoute:
             if isinstance(p, Mapping)
             and (p.get("info") or {}).get("totalTime")
         ),
-        key=lambda p: p["info"]["totalTime"],
+        key=_odsay_sort_key,
         default=None,
     )
     if best is None:
@@ -669,7 +698,10 @@ def _parse_odsay_transit(payload: Mapping[str, Any]) -> SeoulTransitRoute:
     )
 
 
-def parse_seoul_transit_response(body: bytes) -> SeoulTransitRoute:
+def parse_seoul_transit_response(
+    body: bytes,
+    routing_preference: str = "fastest",
+) -> SeoulTransitRoute:
     text = body.decode("utf-8-sig", errors="replace").strip()
     try:
         payload: Any = json.loads(text)
@@ -701,10 +733,14 @@ def parse_seoul_transit_response(body: bytes) -> SeoulTransitRoute:
         or "msgBody" in payload
         or "comMsgHeader" in payload
     ):
-        return _parse_public_data_portal_transit(payload)
+        return _parse_public_data_portal_transit(
+            payload, routing_preference=routing_preference
+        )
 
     if "result" in payload:
-        return _parse_odsay_transit(payload)
+        return _parse_odsay_transit(
+            payload, routing_preference=routing_preference
+        )
 
     raise SeoulTransitApiError(
         "인식할 수 없는 대중교통 경로 응답 형식입니다."
@@ -732,6 +768,7 @@ class SeoulTransitClient:
         start_y: float,
         end_x: float,
         end_y: float,
+        routing_preference: str = "fastest",
     ) -> SeoulTransitRoute:
         if "odsay.com" in self.config.base_url:
             query = urlencode({
@@ -773,7 +810,9 @@ class SeoulTransitClient:
             raise SeoulTransitApiError(
                 f"대중교통 경로 HTTP 오류 {status}: {detail}"
             )
-        route = parse_seoul_transit_response(response_body)
+        route = parse_seoul_transit_response(
+            response_body, routing_preference=routing_preference
+        )
         legs = fill_walk_leg_endpoints(
             route.legs,
             start_x=start_x,

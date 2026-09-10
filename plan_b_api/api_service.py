@@ -616,6 +616,13 @@ class PlanBApiService:
         required = ("start_x", "start_y", "end_x", "end_y")
         if any(query.get(name) is None for name in required):
             raise ValueError("start_x, start_y, end_x, end_y가 필요합니다.")
+        routing_preference = str(
+            query.get("routing_preference")
+            or query.get("preference")
+            or "fastest"
+        )
+        if routing_preference not in {"fastest", "least_transfers"}:
+            routing_preference = "fastest"
         stats = ApiOptimizationStats()
         route, source = cached_seoul_transit_route(
             SeoulTransitClient.from_env(),
@@ -625,6 +632,7 @@ class PlanBApiService:
             start_y=float(query["start_y"]),
             end_x=float(query["end_x"]),
             end_y=float(query["end_y"]),
+            routing_preference=routing_preference,
         )
         try:
             route = enrich_seoul_transit_walk_geometry(
@@ -808,6 +816,11 @@ class PlanBApiService:
                 seoul_transit_client=seoul_transit_client,
                 max_seoul_transit_calls=int(
                     body.get("max_seoul_transit_calls", 3)
+                ),
+                transit_preference=str(
+                    body.get("transit_preference")
+                    or body.get("routing_preference")
+                    or "fastest"
                 ),
                 max_car_route_calls=int(body.get("max_car_route_calls", 5)),
                 next_schedule=next_schedule,

@@ -270,6 +270,11 @@
     </div>
     <label>도보→대중교통 전환 기준(분)</label>
     <input type="number" id="trip-threshold" value="15" min="1" max="60">
+    <label>대중교통 경로 탐색 옵션</label>
+    <select id="transit-preference" style="margin-bottom:8px;">
+      <option value="fastest" selected>⚡ 최단 시간 (제일 빠른 경로)</option>
+      <option value="least_transfers">🚶 최소 환승 (환승 횟수 적은 경로)</option>
+    </select>
 
     <details open id="pref-details">
       <summary>추천 선호 설정 (빈 자리 채울 때 사용)</summary>
@@ -1046,6 +1051,9 @@ async function fetchLeg(idx, mode) {
     start_x: from.place.longitude, start_y: from.place.latitude,
     end_x: to.place.longitude, end_y: to.place.latitude, end_name: to.place.name,
   };
+  if (mode === "transit") {
+    params.preference = document.getElementById("transit-preference")?.value || "fastest";
+  }
   const pathByMode = { walk: "/walking-route", car: "/car-route", transit: "/seoul-transit-route" };
   const labelByMode = { walk: "도보", car: "차량", transit: "대중교통" };
   try {
@@ -1768,6 +1776,7 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
   }
   const budget = document.getElementById("pref-budget").value;
   if (budget) body.budget = parseInt(budget, 10);
+  body.transit_preference = document.getElementById("transit-preference")?.value || "fastest";
   if (nextLocked) {
     body.next_longitude = nextLocked.place.longitude;
     body.next_latitude = nextLocked.place.latitude;
