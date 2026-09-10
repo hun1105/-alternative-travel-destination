@@ -35,7 +35,7 @@ from .optimized_recommender import (
     recommend_nearby_optimized,
 )
 from .recommender import RankedTourCandidate, build_candidate_evidence
-from .route_client import TMapPedestrianClient
+from .route_client import TMapApiError, TMapPedestrianClient
 from .seoul_crowd_client import (
     SEOUL_AREA_CROWD_INFLUENCE,
     SEOUL_AREA_CROWD_NOTICE,
@@ -43,7 +43,11 @@ from .seoul_crowd_client import (
     find_seoul_crowd_area,
     find_seoul_crowd_area_by_name,
 )
-from .seoul_transit_client import SeoulTransitClient
+from .seoul_transit_client import (
+    SeoulTransitApiError,
+    SeoulTransitClient,
+    _haversine_distance_meters,
+)
 from .scoring import LABELS, PRIORITY_FIELDS, UserPriorities
 from .signal_builder import TripContext
 from .schedule_feasibility import NextScheduleConstraint
@@ -624,26 +628,98 @@ class PlanBApiService:
         if routing_preference not in {"fastest", "least_transfers"}:
             routing_preference = "fastest"
         stats = ApiOptimizationStats()
-        route, source = cached_seoul_transit_route(
-            SeoulTransitClient.from_env(),
-            self.cache,
-            stats,
-            start_x=float(query["start_x"]),
-            start_y=float(query["start_y"]),
-            end_x=float(query["end_x"]),
-            end_y=float(query["end_y"]),
-            routing_preference=routing_preference,
-        )
+        start_x = float(query["start_x"])
+        start_y = float(query["start_y"])
+        end_x = float(query["end_x"])
+        end_y = float(query["end_y"])
+
+        dist_meters = _haversine_distance_meters(start_x, start_y, end_x, end_y)
+
+        # 공공데이터포털 환승 API는 단거리(약 750m 이내) 조회 시 탑승 노선이 없어 XML Parsing Error를 반환함.
+        # 따라서 750m 이내 도보권 구간은 도보 경로로 자동 안내한다.
+        is_short_distance = dist_meters <= 750.0
+
+        if not is_short_distance:
+            try:
+                route, source = cached_seoul_transit_route(
+                    SeoulTransitClient.from_env(),
+                    self.cache,
+                    stats,
+                    start_x=start_x,
+                    start_y=start_y,
+                    end_x=end_x,
+                    end_y=end_y,
+                    routing_preference=routing_preference,
+                )
+                try:
+                    route = enrich_seoul_transit_walk_geometry(
+                        route, TMapPedestrianClient.from_env(), self.cache, stats
+                    )
+                except (ValueError, TMapApiError):
+                    pass
+                return {
+                    **asdict(route),
+                    "source": source,
+                    "within_30_minutes": route.duration_minutes <= 30,
+                    "is_walking_fallback": False,
+                    "api_calls": stats.total_api_calls,
+                }
+            except SeoulTransitApiError:
+                if dist_meters > 1500.0:
+                    raise
+
+        # 도보 경로로 폴백 (TMap 보행자 경로 또는 직선거리 근사)
         try:
-            route = enrich_seoul_transit_walk_geometry(
-                route, TMapPedestrianClient.from_env(), self.cache, stats
-            )
-        except ValueError:
-            pass  # TMAP_APP_KEY 미설정 시 도보 구간 직선 근사를 그대로 둔다.
+            walk_data = self.walking_route(query)
+            walk_mins = float(walk_data["duration_minutes"])
+            walk_dist = float(walk_data["distance_meters"])
+            walk_geom = walk_data.get("geometry")
+            walk_steps = walk_data.get("steps") or []
+        except Exception:
+            walk_dist = round(dist_meters * 1.3, 1)
+            walk_mins = max(1.0, round(walk_dist / 75.0, 1))
+            walk_geom = {
+                "type": "LineString",
+                "coordinates": [[start_x, start_y], [end_x, end_y]],
+            }
+            walk_steps = []
+
+        fallback_leg = {
+            "mode": "도보",
+            "instruction": f"근거리 구간 ({int(walk_dist)}m) 도보 이동 권장",
+            "lane_name": None,
+            "start_name": str(query.get("start_name") or "출발지"),
+            "end_name": str(query.get("end_name") or "도착지"),
+            "start_entrance_no": None,
+            "end_exit_no": None,
+            "station_count": None,
+            "distance_meters": walk_dist,
+            "duration_minutes": walk_mins,
+            "start_longitude": start_x,
+            "start_latitude": start_y,
+            "end_longitude": end_x,
+            "end_latitude": end_y,
+            "start_entrance_longitude": None,
+            "start_entrance_latitude": None,
+            "end_exit_longitude": None,
+            "end_exit_latitude": None,
+            "geometry": walk_geom,
+            "steps": walk_steps,
+        }
+
         return {
-            **asdict(route),
-            "source": source,
-            "within_30_minutes": route.duration_minutes <= 30,
+            "duration_minutes": walk_mins,
+            "distance_meters": walk_dist,
+            "walking_minutes": walk_mins,
+            "walking_distance_meters": walk_dist,
+            "transfer_count": 0,
+            "route_type": "도보 권장",
+            "geometry": walk_geom,
+            "legs": [fallback_leg],
+            "source": "도보 이동 권장 (근거리 구간)",
+            "within_30_minutes": walk_mins <= 30,
+            "is_walking_fallback": True,
+            "notice": f"출발지와 목적지가 가까워(직선 {int(dist_meters)}m, 도보 약 {round(walk_mins)}분) 대중교통 대신 도보 경로를 안내합니다.",
             "api_calls": stats.total_api_calls,
         }
 

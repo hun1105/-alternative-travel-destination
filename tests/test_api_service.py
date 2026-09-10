@@ -265,6 +265,27 @@ class ApiServiceTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
+    def test_seoul_transit_route_short_distance_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = PlanBApiService(
+                str(Path(directory) / "cache.sqlite3")
+            )
+            # 230m 근거리 (도보권 구간)
+            result = service.seoul_transit_route({
+                "start_x": 126.9770,
+                "start_y": 37.5796,
+                "end_x": 126.9790,
+                "end_y": 37.5810,
+            })
+            self.assertTrue(result["is_walking_fallback"])
+            self.assertEqual(result["route_type"], "도보 권장")
+            self.assertEqual(result["transfer_count"], 0)
+            self.assertGreater(result["duration_minutes"], 0)
+            self.assertEqual(len(result["legs"]), 1)
+            self.assertEqual(result["legs"][0]["mode"], "도보")
+            self.assertIn("대중교통 대신 도보 경로를 안내합니다", result["notice"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
