@@ -52,6 +52,7 @@ from .seoul_transit_client import (
 )
 from .scoring import LABELS, PRIORITY_FIELDS, UserPriorities
 from .signal_builder import TripContext
+from .route_optimizer import optimize_schedule_order
 from .schedule_feasibility import NextScheduleConstraint
 from .weather_client import KMAClient, WeatherSnapshot
 from .trip_plan import (
@@ -455,6 +456,34 @@ class PlanBApiService:
         return {
             "valid": True,
             "plan": validate_trip_plan(body),
+        }
+
+    @staticmethod
+    def optimize_schedule(body: Mapping[str, Any]) -> dict[str, Any]:
+        raw_items = body.get("items")
+        if not isinstance(raw_items, Sequence) or isinstance(raw_items, (str, bytes)):
+            raise ValueError("items 배열이 필요합니다.")
+        items = [dict(it) if isinstance(it, Mapping) else it for it in raw_items]
+        keep_first = bool(body.get("keep_first", True))
+        speed_raw = body.get("average_speed_kmh", 25.0)
+        try:
+            average_speed_kmh = float(speed_raw)
+        except (ValueError, TypeError):
+            average_speed_kmh = 25.0
+
+        res = optimize_schedule_order(
+            items,
+            keep_first=keep_first,
+            average_speed_kmh=average_speed_kmh,
+        )
+        return {
+            "optimized_indices": res.optimized_indices,
+            "original_distance_meters": res.original_distance_meters,
+            "optimized_distance_meters": res.optimized_distance_meters,
+            "saved_distance_meters": res.saved_distance_meters,
+            "estimated_saved_minutes": res.estimated_saved_minutes,
+            "is_improved": res.is_improved,
+            "items": res.items,
         }
 
     def create_trip_plan(self, body: Mapping[str, Any]) -> dict[str, Any]:

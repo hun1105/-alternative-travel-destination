@@ -34,6 +34,11 @@ class FakeService:
     def recommendations(body: dict[str, object]) -> dict[str, object]:
         return {"received": body, "recommendations": []}
 
+    @staticmethod
+    def optimize_schedule(body: dict[str, object]) -> dict[str, object]:
+        return {"is_improved": True, "optimized_indices": [0, 1]}
+
+
 
 class ApiServiceTests(unittest.TestCase):
     def test_priority_numbers_are_converted_to_fields(self) -> None:
@@ -92,6 +97,17 @@ class ApiServiceTests(unittest.TestCase):
                 with urlopen(request, timeout=2) as response:
                     validated = json.loads(response.read().decode("utf-8"))
                 self.assertTrue(validated["valid"])
+
+                opt_body = json.dumps({"items": []}).encode("utf-8")
+                request = Request(
+                    f"{base}/trip-plans/optimize-route",
+                    data=opt_body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    opt_res = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(opt_res["is_improved"])
 
                 with self.assertRaises(HTTPError) as context:
                     urlopen(f"{base}/missing", timeout=2)

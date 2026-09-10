@@ -337,7 +337,10 @@
     <div id="directions-scroll">
     <div id="info-view" class="panel-view"></div>
     <div id="schedule-view" class="panel-view active">
-      <h2>일정 목록 (<span id="schedule-count">0</span>)</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h2 style="margin:0;">일정 목록 (<span id="schedule-count">0</span>)</h2>
+        <button type="button" id="btn-optimize-route" class="small" style="background:#059669; color:#fff; border-color:#059669; font-weight:600; padding:4px 10px; border-radius:6px; cursor:pointer;" title="방문 순서를 재배치하여 총 이동거리와 시간을 최소화합니다">⚡ 동선 최적화</button>
+      </div>
       <div id="schedule-list"></div>
       <div id="schedule-summary"></div>
       <div class="row" style="margin-top:8px;">
@@ -1374,6 +1377,45 @@ async function saveTripPlan() {
   }
 }
 
+// ---------- 동선 최적화 (TSP) ----------
+async function optimizeRoute() {
+  if (state.schedules.length < 3) {
+    toast("동선을 최적화하려면 3개 이상의 일정이 필요합니다.");
+    return;
+  }
+  const btn = document.getElementById("btn-optimize-route");
+  if (btn) btn.disabled = true;
+  toast("동선 최적화 계산 중...");
+  try {
+    const data = await apiPost("/trip-plans/optimize-route", {
+      items: state.schedules,
+      keep_first: true,
+      average_speed_kmh: 25.0,
+    });
+    if (!data.is_improved) {
+      toast("현재 동선이 이미 최적화된 상태입니다.");
+      return;
+    }
+    state.schedules = data.items;
+    state.legRoutes = {};
+    renderSchedule();
+    const savedKm = (data.saved_distance_meters / 1000).toFixed(1);
+    toast(`⚡ 동선 최적화 완료! 이동거리 ${savedKm}km (약 ${Math.round(data.estimated_saved_minutes)}분) 단축`);
+
+    if (state.lastRouteMode) {
+      toast("구간 경로를 자동으로 다시 계산 중...");
+      for (let i = 0; i < state.schedules.length - 1; i++) {
+        await fetchLeg(i, state.lastRouteMode);
+      }
+    }
+  } catch (err) {
+    toast("동선 최적화 실패: " + (err.message || err));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+document.getElementById("btn-optimize-route").addEventListener("click", optimizeRoute);
 document.getElementById("btn-save").addEventListener("click", saveTripPlan);
 
 function showShareLink() {

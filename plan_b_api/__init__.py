@@ -57,6 +57,12 @@ from .place_search_client import (
     TMapPlaceSearchError,
     parse_place_search_response,
 )
+from .route_optimizer import (
+    OptimizationResult,
+    haversine_distance_meters,
+    optimize_schedule_order,
+    total_route_distance,
+)
 from .trip_plan import (
     SCHEMA_VERSION,
     SelectedPlace,
@@ -240,4 +246,8 @@ __all__ = [
     "recommend_nearby_optimized",
     "score_candidate",
     "validate_trip_plan",
+    "optimize_schedule_order",
+    "haversine_distance_meters",
+    "total_route_distance",
+    "OptimizationResult",
 ]

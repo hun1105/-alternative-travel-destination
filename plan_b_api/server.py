@@ -133,6 +133,8 @@ class PlanBRequestHandler(BaseHTTPRequestHandler):
                 return self.service.recommendations(body)
             if path == "/trip-plans/validate":
                 return self.service.validate_trip_plan(body)
+            if path == "/trip-plans/optimize-route":
+                return self.service.optimize_schedule(body)
             if path == "/trip-plans":
                 return self.service.create_trip_plan(body)
             if path.startswith("/trip-plans/") and path.endswith("/replace-schedule"):
