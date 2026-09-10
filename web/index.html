@@ -1704,7 +1704,33 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
     const data = await apiPost("/recommendations", body);
     resultsEl.innerHTML = "";
     const list = data.recommendations || [];
-    if (!list.length) resultsEl.innerHTML = "<div class='meta'>조건에 맞는 추천 후보가 없습니다.</div>";
+    if (!list.length) {
+      const reasonCounts = {};
+      (data.excluded || []).forEach((cand) => {
+        (cand.rejection_reasons || []).forEach((r) => {
+          reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+        });
+      });
+      const entries = Object.entries(reasonCounts);
+      let html = `<div class="card" style="background:#fff8f8;border-color:#f5c2c7;padding:14px;border-radius:8px;">
+        <div style="font-weight:700;color:var(--danger);font-size:15px;margin-bottom:6px;">⚠️ 조건에 맞는 추천 후보가 없습니다</div>`;
+      if (entries.length > 0) {
+        html += `<div style="font-size:13px;color:#495057;margin-bottom:8px;">검색된 주변 후보지 ${data.excluded.length}곳이 다음 제약 조건으로 인해 제외되었습니다:</div>
+        <ul style="margin:0 0 10px 20px;padding:0;font-size:13px;color:#333;line-height:1.6;">`;
+        entries.forEach(([reason, count]) => {
+          html += `<li><strong>${escapeHtml(reason)}</strong>: ${count}곳 제외</li>`;
+        });
+        html += `</ul>
+        <div style="font-size:12px;color:#555;background:#fff;padding:9px;border-radius:6px;border:1px solid #eee;line-height:1.5;">
+          💡 <strong>해결 팁:</strong> 다음 고정 일정 시간을 늦추거나, 체류시간 단축 또는 상단 선호 조건(카테고리/예산/반경)을 조정해보세요.
+        </div>`;
+      } else {
+        html += `<div style="font-size:13px;color:#555;line-height:1.5;">현재 위치 반경 내에 등록된 관광지 데이터가 없거나 필터 조건이 너무 엄격합니다. 지도 반경을 넓히거나 세부 카테고리 필터를 해제해보세요.</div>`;
+      }
+      html += `</div>`;
+      resultsEl.innerHTML = html;
+      return;
+    }
     list.forEach((cand) => {
       const card = document.createElement("div");
       card.className = "card";
@@ -1760,6 +1786,17 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
         .bindPopup(escapeHtml(cand.title));
       recommendLayer.addLayer(marker);
     });
+
+    if (data.excluded && data.excluded.length > 0) {
+      const details = document.createElement("details");
+      details.style.cssText = "margin-top:14px;padding:8px 10px;background:#f8f9fa;border-radius:6px;font-size:12px;color:var(--muted);border:1px solid #e9ecef;";
+      details.innerHTML = `<summary style="cursor:pointer;font-weight:600;">ℹ️ 조건 미충족 제외 후보 ${data.excluded.length}곳 및 사유 보기</summary>
+        <ul style="margin:8px 0 0 16px;padding:0;line-height:1.6;">
+          ${data.excluded.slice(0, 10).map((c) => `<li><strong>${escapeHtml(c.title)}</strong>: ${escapeHtml((c.rejection_reasons || []).join(', ') || '조건 미충족')}</li>`).join('')}
+          ${data.excluded.length > 10 ? `<li>외 ${data.excluded.length - 10}곳...</li>` : ''}
+        </ul>`;
+      resultsEl.appendChild(details);
+    }
   } catch (err) {
     resultsEl.innerHTML = "<div class='meta'>추천 실패: " + escapeHtml(err.message) + "</div>";
   }
