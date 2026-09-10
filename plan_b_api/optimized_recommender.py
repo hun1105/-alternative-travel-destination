@@ -19,6 +19,11 @@ from .crowd_client import (
 )
 from .kto_client import KTOApiError, KTOClient
 from .normalizer import normalize_place
+from .place_search_client import (
+    PlaceSearchResult,
+    TMapPlaceSearchClient,
+    TMapPlaceSearchError,
+)
 from .recommender import (
     RankedTourCandidate,
     apply_confidence_penalty,
@@ -391,7 +396,7 @@ def enrich_seoul_transit_walk_geometry(
     cache: SQLiteTTLCache,
     stats: ApiOptimizationStats,
 ) -> SeoulTransitRoute:
-    """ODsay는 도보 구간의 실제 경로선을 주지 않으므로 TMAP으로 채운다."""
+    """도보 구간의 실제 경로선(LineString), 거리, 시간, 회전 안내를 TMAP 보행자 API로 채운다."""
 
     legs = list(route.legs)
     for index, leg in enumerate(legs):
@@ -408,15 +413,328 @@ def enrich_seoul_transit_walk_geometry(
                 end_y=leg.end_latitude,
                 end_name=leg.end_name or "환승 지점",
             )
-        except TMapApiError:
-            continue
-        if walk_route.geometry:
+            geom = walk_route.geometry or leg.geometry
+            steps = walk_route.steps or leg.steps
+            dist = walk_route.distance_meters if walk_route.distance_meters is not None else leg.distance_meters
+            dur = walk_route.duration_minutes if walk_route.duration_minutes is not None else leg.duration_minutes
+
+            instruction = leg.instruction
+            if dist is not None and dur is not None:
+                if (
+                    not instruction
+                    or instruction == "도보 이동"
+                    or instruction.startswith("도보로")
+                ):
+                    instruction = f"도보로 {int(dist)}m · {round(dur, 1)}분 이동"
+
             legs[index] = replace(
-                leg, geometry=walk_route.geometry, steps=walk_route.steps
+                leg,
+                geometry=geom,
+                steps=steps,
+                distance_meters=dist,
+                duration_minutes=dur,
+                instruction=instruction,
             )
+        except (TMapApiError, ValueError):
+            if leg.start_longitude is not None and leg.end_longitude is not None:
+                dist = round(
+                    _straight_distance_meters(
+                        leg.start_longitude,
+                        leg.start_latitude,
+                        leg.end_longitude,
+                        leg.end_latitude,
+                    ),
+                    1,
+                )
+                dur = max(1.0, round(dist / 75.0, 1)) if dist >= 5.0 else 0.0
+                geom = leg.geometry or {
+                    "type": "LineString",
+                    "coordinates": [
+                        [leg.start_longitude, leg.start_latitude],
+                        [leg.end_longitude, leg.end_latitude],
+                    ],
+                }
+                legs[index] = replace(
+                    leg,
+                    geometry=geom,
+                    distance_meters=dist,
+                    duration_minutes=dur,
+                )
+
+    walk_legs = [l for l in legs if l.mode == "도보"]
+    walk_minutes_total = sum(l.duration_minutes or 0.0 for l in walk_legs)
+    walk_distance_total = sum(l.distance_meters or 0.0 for l in walk_legs)
+
+    old_walk_mins = route.walking_minutes or 0.0
+    transit_vehicle_mins = max(0.0, route.duration_minutes - old_walk_mins)
+    new_total_duration = max(1.0, round(transit_vehicle_mins + walk_minutes_total, 1))
+
+    new_total_distance = sum(l.distance_meters or 0.0 for l in legs)
+    if new_total_distance <= 0 and route.distance_meters:
+        new_total_distance = route.distance_meters
+
     legs_tuple = tuple(legs)
     geometry = combine_leg_geometries(legs_tuple) or route.geometry
-    return replace(route, legs=legs_tuple, geometry=geometry)
+
+    return replace(
+        route,
+        legs=legs_tuple,
+        geometry=geometry,
+        duration_minutes=new_total_duration,
+        walking_minutes=round(walk_minutes_total, 1),
+        walking_distance_meters=round(walk_distance_total, 1),
+        distance_meters=round(new_total_distance, 1) if new_total_distance > 0 else route.distance_meters,
+    )
+
+
+def find_nearest_transit_stops(
+    client: TMapPlaceSearchClient,
+    lon: float,
+    lat: float,
+    *,
+    radius_km: int = 1,
+    count: int = 10,
+) -> list[PlaceSearchResult]:
+    """주변 대중교통(버스정류장 및 지하철역)을 가까운 순으로 검색한다."""
+
+    try:
+        response = client.search(
+            "정류장",
+            center_x=lon,
+            center_y=lat,
+            radius_km=radius_km,
+            count=min(count, 20),
+        )
+        items = list(response.items)
+    except (TMapPlaceSearchError, ValueError):
+        items = []
+
+    if len(items) < 3:
+        try:
+            sub_res = client.search(
+                "역",
+                center_x=lon,
+                center_y=lat,
+                radius_km=radius_km,
+                count=5,
+            )
+            items.extend(sub_res.items)
+        except (TMapPlaceSearchError, ValueError):
+            pass
+
+    seen = set()
+    transit_stops: list[tuple[float, PlaceSearchResult]] = []
+    keywords = ("정류", "정류소", "정류장", "역", "승강장", "터미널")
+    cat_keywords = ("교통", "정류장", "지하철", "버스")
+
+    for item in items:
+        coord_key = (round(item.longitude, 4), round(item.latitude, 4))
+        if coord_key in seen:
+            continue
+        seen.add(coord_key)
+
+        name = item.name or ""
+        cat = item.category or ""
+        is_transit = any(k in name for k in keywords) or any(k in cat for k in cat_keywords)
+        if not is_transit:
+            continue
+
+        dist = _straight_distance_meters(lon, lat, item.longitude, item.latitude)
+        transit_stops.append((dist, item))
+
+    transit_stops.sort(key=lambda x: x[0])
+    return [item for _, item in transit_stops[:count]]
+
+
+def _adjust_snapped_route(
+    route: SeoulTransitRoute,
+    *,
+    original_start_x: float,
+    original_start_y: float,
+    original_end_x: float,
+    original_end_y: float,
+    snapped_start: bool,
+    snapped_end: bool,
+    start_name: str | None = None,
+    end_name: str | None = None,
+) -> SeoulTransitRoute:
+    legs = list(route.legs)
+
+    if snapped_start and legs:
+        if legs[0].mode == "도보":
+            legs[0] = replace(
+                legs[0],
+                start_longitude=original_start_x,
+                start_latitude=original_start_y,
+                geometry=None,
+            )
+        else:
+            board_leg = legs[0]
+            first_walk = SeoulTransitLeg(
+                mode="도보",
+                instruction=f"{board_leg.start_name or '승차 정류장'}까지 도보 이동",
+                start_longitude=original_start_x,
+                start_latitude=original_start_y,
+                end_longitude=board_leg.start_longitude,
+                end_latitude=board_leg.start_latitude,
+                end_name=board_leg.start_name,
+            )
+            legs.insert(0, first_walk)
+
+    if snapped_end and legs:
+        if legs[-1].mode == "도보":
+            legs[-1] = replace(
+                legs[-1],
+                end_longitude=original_end_x,
+                end_latitude=original_end_y,
+                geometry=None,
+                end_name=end_name or legs[-1].end_name or "목적지",
+            )
+        else:
+            alight_leg = legs[-1]
+            last_walk = SeoulTransitLeg(
+                mode="도보",
+                instruction=f"{end_name or '목적지'}까지 도보 이동",
+                start_longitude=alight_leg.end_longitude,
+                start_latitude=alight_leg.end_latitude,
+                end_longitude=original_end_x,
+                end_latitude=original_end_y,
+                start_name=alight_leg.end_name,
+                end_name=end_name or "목적지",
+            )
+            legs.append(last_walk)
+
+    legs_tuple = tuple(legs)
+    geom = combine_leg_geometries(legs_tuple) or route.geometry
+    return replace(route, legs=legs_tuple, geometry=geom)
+
+
+def cached_seoul_transit_route_with_snap(
+    client: SeoulTransitClient,
+    place_client: TMapPlaceSearchClient | None,
+    cache: SQLiteTTLCache,
+    stats: ApiOptimizationStats,
+    *,
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+    start_name: str | None = None,
+    end_name: str | None = None,
+    routing_preference: str = "fastest",
+    snap_radius_km: int = 1,
+) -> tuple[SeoulTransitRoute, str]:
+    """공공데이터포털 API 직호출 실패 시 출발지·도착지 인근 정류장을 스냅하여 대중교통 경로를 연결한다."""
+
+    try:
+        route, source = cached_seoul_transit_route(
+            client,
+            cache,
+            stats,
+            start_x=start_x,
+            start_y=start_y,
+            end_x=end_x,
+            end_y=end_y,
+            routing_preference=routing_preference,
+        )
+        return route, source
+    except SeoulTransitApiError as original_error:
+        if place_client is None:
+            raise
+
+    start_stops = find_nearest_transit_stops(
+        place_client, start_x, start_y, radius_km=snap_radius_km, count=5
+    )
+    end_stops = find_nearest_transit_stops(
+        place_client, end_x, end_y, radius_km=snap_radius_km, count=5
+    )
+
+    # 1) 출발지 스냅 시도 (출발지 정류장 -> 원본 도착지)
+    for stop in start_stops[:3]:
+        try:
+            route, _ = cached_seoul_transit_route(
+                client,
+                cache,
+                stats,
+                start_x=stop.longitude,
+                start_y=stop.latitude,
+                end_x=end_x,
+                end_y=end_y,
+                routing_preference=routing_preference,
+            )
+            adjusted = _adjust_snapped_route(
+                route,
+                original_start_x=start_x,
+                original_start_y=start_y,
+                original_end_x=end_x,
+                original_end_y=end_y,
+                snapped_start=True,
+                snapped_end=False,
+                start_name=start_name,
+                end_name=end_name,
+            )
+            return adjusted, f"출발 정류장({stop.name}) 연계 환승경로"
+        except SeoulTransitApiError:
+            continue
+
+    # 2) 도착지 스냅 시도 (원본 출발지 -> 도착지 정류장)
+    for stop in end_stops[:3]:
+        try:
+            route, _ = cached_seoul_transit_route(
+                client,
+                cache,
+                stats,
+                start_x=start_x,
+                start_y=start_y,
+                end_x=stop.longitude,
+                end_y=stop.latitude,
+                routing_preference=routing_preference,
+            )
+            adjusted = _adjust_snapped_route(
+                route,
+                original_start_x=start_x,
+                original_start_y=start_y,
+                original_end_x=end_x,
+                original_end_y=end_y,
+                snapped_start=False,
+                snapped_end=True,
+                start_name=start_name,
+                end_name=end_name,
+            )
+            return adjusted, f"하차 정류장({stop.name}) 연계 환승경로"
+        except SeoulTransitApiError:
+            continue
+
+    # 3) 양쪽 모두 스냅 시도 (출발지 정류장 -> 도착지 정류장)
+    for s_stop in start_stops[:2]:
+        for e_stop in end_stops[:2]:
+            try:
+                route, _ = cached_seoul_transit_route(
+                    client,
+                    cache,
+                    stats,
+                    start_x=s_stop.longitude,
+                    start_y=s_stop.latitude,
+                    end_x=e_stop.longitude,
+                    end_y=e_stop.latitude,
+                    routing_preference=routing_preference,
+                )
+                adjusted = _adjust_snapped_route(
+                    route,
+                    original_start_x=start_x,
+                    original_start_y=start_y,
+                    original_end_x=end_x,
+                    original_end_y=end_y,
+                    snapped_start=True,
+                    snapped_end=True,
+                    start_name=start_name,
+                    end_name=end_name,
+                )
+                return adjusted, f"정류장 연계 환승경로({s_stop.name} → {e_stop.name})"
+            except SeoulTransitApiError:
+                continue
+
+    raise original_error
 
 
 def cached_crowd_places(

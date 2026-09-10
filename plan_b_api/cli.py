@@ -29,10 +29,12 @@ from .optimized_recommender import (
     cached_realtime_crowd,
     cached_seoul_crowd,
     cached_seoul_transit_route,
+    cached_seoul_transit_route_with_snap,
     cached_weather_forecast,
     enrich_seoul_transit_walk_geometry,
     recommend_nearby_optimized,
 )
+from .place_search_client import TMapPlaceSearchClient, TMapPlaceSearchError
 from .priority_prompt import prompt_user_priorities
 from .scoring import LABELS
 from .recommender import (
@@ -717,14 +719,21 @@ def main() -> None:
         if args.command == "seoul-transit-route":
             transit_stats = ApiOptimizationStats()
             transit_cache = SQLiteTTLCache(args.cache_db)
-            route, source = cached_seoul_transit_route(
+            place_client = None
+            try:
+                place_client = TMapPlaceSearchClient.from_env()
+            except (ValueError, TMapPlaceSearchError):
+                pass
+            route, source = cached_seoul_transit_route_with_snap(
                 SeoulTransitClient.from_env(),
+                place_client,
                 transit_cache,
                 transit_stats,
                 start_x=args.start_x,
                 start_y=args.start_y,
                 end_x=args.end_x,
                 end_y=args.end_y,
+                routing_preference=getattr(args, "routing_preference", "fastest"),
             )
             try:
                 route = enrich_seoul_transit_walk_geometry(
@@ -733,7 +742,7 @@ def main() -> None:
                     transit_cache,
                     transit_stats,
                 )
-            except ValueError:
+            except (ValueError, TMapApiError):
                 pass  # TMAP_APP_KEY 미설정 시 도보 구간 직선 근사를 그대로 둔다.
             _print_result({
                 **asdict(route),

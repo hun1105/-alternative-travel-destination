@@ -29,11 +29,13 @@ from .optimized_recommender import (
     cached_realtime_crowd,
     cached_seoul_crowd,
     cached_seoul_transit_route,
+    cached_seoul_transit_route_with_snap,
     cached_walking_route,
     cached_weather_forecast,
     enrich_seoul_transit_walk_geometry,
     recommend_nearby_optimized,
 )
+from .place_search_client import TMapPlaceSearchClient, TMapPlaceSearchError
 from .recommender import RankedTourCandidate, build_candidate_evidence
 from .route_client import TMapApiError, TMapPedestrianClient
 from .seoul_crowd_client import (
@@ -639,16 +641,25 @@ class PlanBApiService:
         is_short_distance = dist_meters <= 500.0
 
         if not is_short_distance:
-            # 500m 초과인 경우 대중교통 API를 호출하며, 실패 시 도보로 자동 대체하지 않고 오류를 반환한다.
+            # 500m 초과인 경우 대중교통 API를 호출하며, 직호출 실패 시 인근 정류장 스냅 연계를 시도한다.
             try:
-                route, source = cached_seoul_transit_route(
+                place_client = None
+                try:
+                    place_client = TMapPlaceSearchClient.from_env()
+                except (ValueError, TMapPlaceSearchError):
+                    pass
+
+                route, source = cached_seoul_transit_route_with_snap(
                     SeoulTransitClient.from_env(),
+                    place_client,
                     self.cache,
                     stats,
                     start_x=start_x,
                     start_y=start_y,
                     end_x=end_x,
                     end_y=end_y,
+                    start_name=str(query.get("start_name") or ""),
+                    end_name=str(query.get("end_name") or ""),
                     routing_preference=routing_preference,
                 )
                 try:

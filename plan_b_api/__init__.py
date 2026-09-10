@@ -31,6 +31,8 @@ from .optimized_recommender import (
     cached_realtime_crowd,
     cached_seoul_crowd,
     cached_seoul_transit_route,
+    cached_seoul_transit_route_with_snap,
+    find_nearest_transit_stops,
     enrich_seoul_transit_walk_geometry,
     recommend_nearby_optimized,
 )
@@ -206,6 +208,8 @@ __all__ = [
     "cached_realtime_crowd",
     "cached_seoul_crowd",
     "cached_seoul_transit_route",
+    "cached_seoul_transit_route_with_snap",
+    "find_nearest_transit_stops",
     "enrich_seoul_transit_walk_geometry",
     "dynamic_weights",
     "evaluate_place_candidate",

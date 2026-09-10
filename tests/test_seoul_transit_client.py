@@ -1,12 +1,36 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
 
+from plan_b_api.api_cache import SQLiteTTLCache
+from plan_b_api.optimized_recommender import (
+    ApiOptimizationStats,
+    _adjust_snapped_route,
+    cached_seoul_transit_route_with_snap,
+    enrich_seoul_transit_walk_geometry,
+    find_nearest_transit_stops,
+)
+from plan_b_api.place_search_client import (
+    PlaceSearchResponse,
+    PlaceSearchResult,
+    TMapPlaceSearchClient,
+)
+from plan_b_api.route_client import (
+    TMapPedestrianClient,
+    WalkingRoute,
+    WalkingStep,
+)
 from plan_b_api.seoul_transit_client import (
+    SeoulTransitApiError,
     SeoulTransitClient,
     SeoulTransitConfig,
+    SeoulTransitLeg,
+    SeoulTransitRoute,
     parse_seoul_transit_response,
 )
 
@@ -374,6 +398,242 @@ class SeoulTransitClientTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(Exception, "XML Parsing Error"):
             parse_seoul_transit_response(json.dumps(payload).encode())
+
+
+class TransitSnapTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.NamedTemporaryFile(delete=False)
+        self.tmp.close()
+        self.cache = SQLiteTTLCache(self.tmp.name)
+        self.stats = ApiOptimizationStats()
+
+    def tearDown(self) -> None:
+        if os.path.exists(self.tmp.name):
+            os.remove(self.tmp.name)
+
+    def test_find_nearest_transit_stops(self) -> None:
+        place_client = MagicMock(spec=TMapPlaceSearchClient)
+        place_client.search.return_value = PlaceSearchResponse(
+            query="정류장",
+            total_count=3,
+            items=(
+                PlaceSearchResult(
+                    place_id="1",
+                    name="영화사입구[정류장]",
+                    longitude=127.0941,
+                    latitude=37.5541,
+                    category="버스정류장",
+                ),
+                PlaceSearchResult(
+                    place_id="2",
+                    name="아차산역 5호선",
+                    longitude=127.0850,
+                    latitude=37.5450,
+                    category="지하철역",
+                ),
+                PlaceSearchResult(
+                    place_id="3",
+                    name="일반식당",
+                    longitude=127.0900,
+                    latitude=37.5500,
+                    category="음식점",
+                ),
+            ),
+        )
+        stops = find_nearest_transit_stops(
+            place_client, 127.0987, 37.5510, radius_km=1, count=5
+        )
+        self.assertEqual(len(stops), 2)
+        self.assertEqual(stops[0].name, "영화사입구[정류장]")
+        self.assertEqual(stops[1].name, "아차산역 5호선")
+
+    def test_adjust_snapped_route_departure(self) -> None:
+        base_route = SeoulTransitRoute(
+            duration_minutes=15.0,
+            legs=(
+                SeoulTransitLeg(
+                    mode="도보",
+                    instruction="정류장 이동",
+                    start_longitude=127.0941,
+                    start_latitude=37.5541,
+                    end_longitude=127.0940,
+                    end_latitude=37.5540,
+                ),
+                SeoulTransitLeg(
+                    mode="버스",
+                    instruction="광진03 승차",
+                    lane_name="광진03",
+                    start_longitude=127.0940,
+                    start_latitude=37.5540,
+                    end_longitude=127.0855,
+                    end_latitude=37.5455,
+                ),
+            ),
+        )
+        adjusted = _adjust_snapped_route(
+            base_route,
+            original_start_x=127.0987,
+            original_start_y=37.5510,
+            original_end_x=127.0850,
+            original_end_y=37.5450,
+            snapped_start=True,
+            snapped_end=False,
+            start_name="아차산생태공원",
+            end_name="아차산역",
+        )
+        self.assertEqual(adjusted.legs[0].mode, "도보")
+        self.assertEqual(adjusted.legs[0].start_longitude, 127.0987)
+        self.assertEqual(adjusted.legs[0].start_latitude, 37.5510)
+
+    def test_adjust_snapped_route_arrival(self) -> None:
+        base_route = SeoulTransitRoute(
+            duration_minutes=15.0,
+            legs=(
+                SeoulTransitLeg(
+                    mode="버스",
+                    instruction="광진03 승차",
+                    lane_name="광진03",
+                    start_longitude=127.0855,
+                    start_latitude=37.5455,
+                    end_longitude=127.0940,
+                    end_latitude=37.5540,
+                    end_name="영화사입구",
+                ),
+            ),
+        )
+        adjusted = _adjust_snapped_route(
+            base_route,
+            original_start_x=127.0850,
+            original_start_y=37.5450,
+            original_end_x=127.0987,
+            original_end_y=37.5510,
+            snapped_start=False,
+            snapped_end=True,
+            start_name="아차산역",
+            end_name="아차산생태공원",
+        )
+        self.assertEqual(len(adjusted.legs), 2)
+        self.assertEqual(adjusted.legs[1].mode, "도보")
+        self.assertEqual(adjusted.legs[1].end_longitude, 127.0987)
+        self.assertEqual(adjusted.legs[1].end_latitude, 37.5510)
+
+    def test_cached_seoul_transit_route_with_snap_fallback(self) -> None:
+        transit_client = MagicMock(spec=SeoulTransitClient)
+
+        def transit_route_side_effect(**kwargs: object) -> SeoulTransitRoute:
+            start_x = kwargs.get("start_x")
+            if start_x == 127.0987:
+                raise SeoulTransitApiError("XML Parsing Error")
+            return SeoulTransitRoute(
+                duration_minutes=10.0,
+                legs=(
+                    SeoulTransitLeg(
+                        mode="도보",
+                        instruction="도보",
+                        start_longitude=float(start_x),
+                        start_latitude=float(kwargs["start_y"]),
+                        end_longitude=127.0940,
+                        end_latitude=37.5540,
+                    ),
+                    SeoulTransitLeg(
+                        mode="버스",
+                        instruction="광진03",
+                        lane_name="광진03",
+                        start_longitude=127.0940,
+                        start_latitude=37.5540,
+                        end_longitude=127.0850,
+                        end_latitude=37.5450,
+                    ),
+                ),
+            )
+
+        transit_client.route.side_effect = transit_route_side_effect
+
+        place_client = MagicMock(spec=TMapPlaceSearchClient)
+        place_client.search.return_value = PlaceSearchResponse(
+            query="정류장",
+            total_count=1,
+            items=(
+                PlaceSearchResult(
+                    place_id="1",
+                    name="영화사입구[정류장]",
+                    longitude=127.0941,
+                    latitude=37.5541,
+                    category="버스정류장",
+                ),
+            ),
+        )
+
+        route, source = cached_seoul_transit_route_with_snap(
+            transit_client,
+            place_client,
+            self.cache,
+            self.stats,
+            start_x=127.0987,
+            start_y=37.5510,
+            end_x=127.0850,
+            end_y=37.5450,
+            start_name="아차산생태공원",
+            end_name="아차산역",
+        )
+        self.assertIn("영화사입구", source)
+        self.assertEqual(route.legs[0].start_longitude, 127.0987)
+        self.assertEqual(route.legs[0].start_latitude, 37.5510)
+
+    def test_enrich_seoul_transit_walk_geometry(self) -> None:
+        walking_client = MagicMock(spec=TMapPedestrianClient)
+        walking_client.pedestrian_route.return_value = WalkingRoute(
+            distance_meters=350.0,
+            duration_seconds=300,
+            geometry={
+                "type": "LineString",
+                "coordinates": [
+                    [127.0987, 37.5510],
+                    [127.0950, 37.5520],
+                    [127.0941, 37.5541],
+                ],
+            },
+            steps=(WalkingStep("도보 이동", 0, 350.0, 127.0987, 37.5510),),
+        )
+        base_route = SeoulTransitRoute(
+            duration_minutes=15.0,
+            walking_minutes=1.0,
+            legs=(
+                SeoulTransitLeg(
+                    mode="도보",
+                    instruction="도보 이동",
+                    start_longitude=127.0987,
+                    start_latitude=37.5510,
+                    end_longitude=127.0941,
+                    end_latitude=37.5541,
+                ),
+                SeoulTransitLeg(
+                    mode="버스",
+                    instruction="광진03 승차",
+                    lane_name="광진03",
+                    start_longitude=127.0941,
+                    start_latitude=37.5541,
+                    end_longitude=127.0850,
+                    end_latitude=37.5450,
+                    geometry={
+                        "type": "LineString",
+                        "coordinates": [[127.0941, 37.5541], [127.0850, 37.5450]],
+                    },
+                ),
+            ),
+        )
+        enriched = enrich_seoul_transit_walk_geometry(
+            base_route,
+            walking_client,
+            self.cache,
+            self.stats,
+        )
+        self.assertEqual(len(enriched.legs[0].geometry["coordinates"]), 3)
+        self.assertEqual(enriched.legs[0].distance_meters, 350.0)
+        self.assertEqual(enriched.legs[0].duration_minutes, 5.0)
+        self.assertEqual(enriched.walking_minutes, 5.0)
+        self.assertEqual(enriched.duration_minutes, 19.0)
+        self.assertEqual(len(enriched.geometry["coordinates"]), 4)
 
 
 if __name__ == "__main__":
