@@ -282,7 +282,7 @@
     <div id="sidebar-scroll">
     <input type="hidden" id="api-base" value="https://alternative-travel-destination.onrender.com">
 
-    <div class="demo-preset-box">
+    <div class="demo-preset-box" id="demo-preset-box" style="display: none;">
       <div class="demo-preset-title">⚡ 심사용 실시간 돌발 시나리오</div>
       <div class="demo-preset-btns">
         <button type="button" class="demo-btn primary-demo" id="btn-demo-rain">🌧️ 경복궁 폭우 대체</button>
@@ -1678,6 +1678,10 @@ document.getElementById("btn-copy-link").addEventListener("click", () => {
 
 // ---------- 심사용 데모 시나리오 ----------
 function setupDemoScenarios() {
+  const demoBox = document.getElementById("demo-preset-box");
+  if (demoBox && new URLSearchParams(window.location.search).has("demo")) {
+    demoBox.style.display = "block";
+  }
   const rainBtn = document.getElementById("btn-demo-rain");
   const familyBtn = document.getElementById("btn-demo-family");
   if (rainBtn) {
