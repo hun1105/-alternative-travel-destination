@@ -121,11 +121,13 @@ def _address(item: Mapping[str, Any]) -> str:
 
 
 def parse_place_search_response(body: bytes, query: str) -> PlaceSearchResponse:
+    if not body or not body.strip():
+        return PlaceSearchResponse(query=query, total_count=0, items=())
     try:
         payload = json.loads(body.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise TMapPlaceSearchError(
-            "TMAP 장소 검색 API가 JSON을 반환하지 않았습니다."
+            f"TMAP 장소 검색 API가 JSON을 반환하지 않았습니다. (길이: {len(body)}, 원문: {body[:300]!r})"
         ) from exc
     error = payload.get("error") if isinstance(payload, dict) else None
     if isinstance(error, dict):

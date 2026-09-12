@@ -377,15 +377,24 @@ class PlanBApiService:
                     nationwide = None
 
             items = list(result.items)
-            if nationwide is not None:
+            if nationwide is not None and nationwide.items:
                 target = _normalize_place_name(keyword)
                 existing_ids = {item.place_id for item in items}
-                promoted = [
-                    item for item in nationwide.items
-                    if _normalize_place_name(item.name) == target
-                    and item.place_id not in existing_ids
-                ]
-                items = promoted + items
+                promoted = []
+                for item in nationwide.items:
+                    if item.place_id in existing_ids:
+                        continue
+                    norm_name = _normalize_place_name(item.name)
+                    # 완전 일치, 접두사 일치("부산대학교 부산캠퍼스", "한국해양대학교"),
+                    # 또는 현재 지역 결과가 3개 이하로 빈약할 때 키워드 포함 매칭
+                    if norm_name == target or norm_name.startswith(target) or (len(items) < 3 and target in norm_name):
+                        promoted.append(item)
+                        existing_ids.add(item.place_id)
+
+                if not items:
+                    items = list(nationwide.items)
+                else:
+                    items = promoted + items
                 if len(items) > count:
                     items = items[:count]
         else:
@@ -399,9 +408,13 @@ class PlanBApiService:
             )
             items = list(result.items)
 
+        total_count = result.total_count
+        if total_count == 0 and items:
+            total_count = len(items)
+
         payload = {
-            "query": result.query,
-            "total_count": result.total_count,
+            "query": result.query or keyword,
+            "total_count": total_count,
             "items": [item.selection_payload() for item in items],
         }
 
