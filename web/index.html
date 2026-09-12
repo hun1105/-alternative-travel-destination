@@ -329,7 +329,7 @@
     </select>
 
     <details open id="pref-details">
-      <summary>추천 선호 설정 (빈 자리 채울 때 사용)</summary>
+      <summary>추천 선호 설정 (대체 추천에 사용)</summary>
       <div class="row">
         <div>
           <label>인원</label>
@@ -1239,7 +1239,7 @@ function renderSchedule() {
       </div>
       <div class="row" style="margin-top:6px;">
         <button class="small danger f-remove" ${item.locked ? "disabled title='잠금 해제 후 이용 가능'" : ""}>삭제</button>
-        <button class="small f-gap" ${item.locked ? "disabled title='잠금 해제 후 이용 가능'" : ""}>이 일정 빼고 대체 추천</button>
+        <button class="small f-gap" style="line-height:1.25;" ${item.locked ? "disabled title='잠금 해제 후 이용 가능'" : ""}>이 일정 빼고<br>대체 추천</button>
       </div>`;
     card.querySelector(".f-visit").addEventListener("change", (e) => { item.visit_minutes = parseInt(e.target.value, 10) || 60; });
     card.querySelector(".f-fixed").addEventListener("change", (e) => { item.fixed_arrival_time = e.target.value || null; });
