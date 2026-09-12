@@ -151,6 +151,20 @@
     border-radius: 12px; padding: 2px 9px; font-size: 12px; font-weight: 700;
     margin-left: 6px; vertical-align: middle; white-space: nowrap;
   }
+  .search-result {
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .search-result:hover,
+  .search-result.hover-active {
+    border-color: var(--accent, #2563eb) !important;
+    background: #f0f7ff !important;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.18) !important;
+  }
+  .search-marker-icon {
+    background: none !important;
+    border: none !important;
+  }
   .search-result .meta.distance { color: var(--accent); font-weight: 600; }
   /* 추천 후보 카드: 이름/점수, 이동정보, 소개문을 각각 구분되는
      칸으로 나눠서 한눈에 훑어볼 수 있게 한다. */
@@ -450,7 +464,10 @@ document.getElementById("detail-modal-overlay").addEventListener("click", (e) =>
   if (e.target.id === "detail-modal-overlay") closeDetailModal();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeDetailModal();
+  if (e.key === "Escape") {
+    closeDetailModal();
+    if (typeof dismissSearchHighlight === "function") dismissSearchHighlight();
+  }
 });
 
 async function apiGet(path, params) {
@@ -686,6 +703,86 @@ document.querySelectorAll("#panel-tabs .panel-tab").forEach((btn) => {
   mq.addEventListener("change", applyForViewport);
 })();
 
+function searchMarkerIcon(isHighlighted = false) {
+  const color = isHighlighted ? "#ef4444" : "#2563eb";
+  const width = isHighlighted ? 32 : 24;
+  const height = isHighlighted ? 40 : 30;
+  const shadow = isHighlighted
+    ? "drop-shadow(0 4px 10px rgba(239,68,68,0.65))"
+    : "drop-shadow(0 2px 4px rgba(0,0,0,0.3))";
+
+  const svg = `
+    <svg width="${width}" height="${height}" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter:${shadow}; transition: transform 0.15s ease;">
+      <path d="M14 0.5C6.544 0.5 0.5 6.544 0.5 14C0.5 24.2 14 35.5 14 35.5C14 35.5 27.5 24.2 27.5 14C27.5 6.544 21.456 0.5 14 0.5Z" fill="${color}" stroke="#ffffff" stroke-width="1.2"/>
+      <circle cx="14" cy="14" r="5" fill="#ffffff"/>
+    </svg>
+  `;
+
+  return L.divIcon({
+    html: svg,
+    className: "search-marker-icon" + (isHighlighted ? " highlighted" : ""),
+    iconSize: [width, height],
+    iconAnchor: [width / 2, height],
+    popupAnchor: [0, -height],
+  });
+}
+
+let currentHighlightedSearchMarker = null;
+let currentHighlightedSearchCard = null;
+
+function highlightSearchPlace(marker, card, panIntoView = false) {
+  if (currentHighlightedSearchMarker && currentHighlightedSearchMarker !== marker) {
+    currentHighlightedSearchMarker.setIcon(searchMarkerIcon(false));
+    currentHighlightedSearchMarker.setZIndexOffset(0);
+  }
+  if (currentHighlightedSearchCard && currentHighlightedSearchCard !== card) {
+    currentHighlightedSearchCard.classList.remove("hover-active");
+  }
+
+  currentHighlightedSearchMarker = marker;
+  currentHighlightedSearchCard = card;
+
+  marker.setIcon(searchMarkerIcon(true));
+  marker.setZIndexOffset(1000);
+  if (card) {
+    card.classList.add("hover-active");
+  }
+
+  marker.openPopup();
+
+  if (panIntoView && map && !map.getBounds().contains(marker.getLatLng())) {
+    map.panTo(marker.getLatLng(), { animate: true, duration: 0.3 });
+  }
+}
+
+function dismissSearchHighlight() {
+  if (currentHighlightedSearchMarker) {
+    currentHighlightedSearchMarker.closePopup();
+    currentHighlightedSearchMarker.setIcon(searchMarkerIcon(false));
+    currentHighlightedSearchMarker.setZIndexOffset(0);
+    currentHighlightedSearchMarker = null;
+  }
+  if (currentHighlightedSearchCard) {
+    currentHighlightedSearchCard.classList.remove("hover-active");
+    currentHighlightedSearchCard = null;
+  }
+  if (map) map.closePopup();
+}
+
+if (map) {
+  map.on("popupclose", (e) => {
+    if (currentHighlightedSearchMarker && e.popup === currentHighlightedSearchMarker.getPopup()) {
+      currentHighlightedSearchMarker.setIcon(searchMarkerIcon(false));
+      currentHighlightedSearchMarker.setZIndexOffset(0);
+      if (currentHighlightedSearchCard) {
+        currentHighlightedSearchCard.classList.remove("hover-active");
+      }
+      currentHighlightedSearchMarker = null;
+      currentHighlightedSearchCard = null;
+    }
+  });
+}
+
 function numberedIcon(n, color) {
   return L.divIcon({
     html: `<div style="background:${color || '#2d6cdf'};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);">${n}</div>`,
@@ -851,11 +948,13 @@ async function runSearch() {
   if (!q) return;
   const resultsEl = document.getElementById("search-results");
   resultsEl.innerHTML = "<div class='meta'>검색 중...</div>";
+  dismissSearchHighlight();
   searchLayer.clearLayers();
   try {
     const center = map.getCenter();
     const data = await apiGet("/place-search", { q, center_x: center.lng, center_y: center.lat, count: 8 });
     resultsEl.innerHTML = "";
+    const pts = [];
     (data.items || []).forEach((item) => {
       const card = document.createElement("div");
       card.className = "card search-result";
@@ -872,13 +971,40 @@ async function runSearch() {
       const btn = document.createElement("button");
       btn.textContent = "일정에 추가";
       btn.className = "small primary search-add-btn";
-      btn.addEventListener("click", () => addToSchedule(item));
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        addToSchedule(item);
+      });
       card.appendChild(btn);
       resultsEl.appendChild(card);
 
-      const marker = L.marker([item.latitude, item.longitude]).bindPopup(escapeHtml(item.name));
+      const marker = L.marker([item.latitude, item.longitude], {
+        icon: searchMarkerIcon(false),
+      }).bindPopup(`<b>${escapeHtml(item.name)}</b>${item.address ? `<br><small style="color:#666;">${escapeHtml(item.address)}</small>` : ""}`);
       searchLayer.addLayer(marker);
+      pts.push([item.latitude, item.longitude]);
+
+      // 검색된 장소 위에 마우스가 가면 마커 색상 변경 + 이름(팝업) 표시
+      card.addEventListener("mouseenter", () => {
+        highlightSearchPlace(marker, card, true);
+      });
+
+      card.addEventListener("click", (e) => {
+        if (!e.target.closest(".search-add-btn")) {
+          highlightSearchPlace(marker, card, true);
+        }
+      });
+
+      // 지도 위 마커를 선택(클릭)했을 때도 동일하게 반응
+      marker.on("click", () => {
+        highlightSearchPlace(marker, card, false);
+      });
     });
+
+    if (pts.length) {
+      map.fitBounds(pts, { maxZoom: 15, padding: [30, 30] });
+    }
+
     if (!data.items || !data.items.length) resultsEl.innerHTML = "<div class='meta'>검색 결과 없음</div>";
   } catch (err) {
     resultsEl.innerHTML = "<div class='meta'>검색 실패: " + escapeHtml(err.message) + "</div>";
