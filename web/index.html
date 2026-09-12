@@ -1092,7 +1092,30 @@ async function runSearch() {
       map.fitBounds(pts, { maxZoom: 15, padding: [30, 30] });
     }
 
-    if (!data.items || !data.items.length) resultsEl.innerHTML = "<div class='meta'>검색 결과 없음</div>";
+    if (!data.items || !data.items.length) {
+      if (region !== "nationwide") {
+        const regName = REGION_MAP_PRESETS[region]?.name || "현재 지역";
+        resultsEl.innerHTML = `
+          <div class="card" style="padding:16px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1;">
+            <div style="font-size:14px; font-weight:700; color:#e11d48; margin-bottom:4px;">지역을 확인해주세요.</div>
+            <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">선택 지역('${escapeHtml(regName)}') 내에 '${escapeHtml(q)}' 검색 결과가 없습니다.</div>
+            <button type="button" class="small secondary" id="btn-switch-nationwide" style="display:inline-flex; align-items:center; gap:4px; margin:0 auto;">전국 검색으로 전환</button>
+          </div>`;
+        const switchBtn = document.getElementById("btn-switch-nationwide");
+        if (switchBtn) {
+          switchBtn.addEventListener("click", () => {
+            const tripRegionEl = document.getElementById("trip-region");
+            if (tripRegionEl) {
+              tripRegionEl.value = "nationwide";
+              tripRegionEl.dispatchEvent(new Event("change"));
+              runSearch();
+            }
+          });
+        }
+      } else {
+        resultsEl.innerHTML = "<div class='meta'>검색 결과 없음</div>";
+      }
+    }
   } catch (err) {
     resultsEl.innerHTML = "<div class='meta'>검색 실패: " + escapeHtml(err.message) + "</div>";
   }

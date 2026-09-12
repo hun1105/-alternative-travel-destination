@@ -354,50 +354,18 @@ class PlanBApiService:
         client = TMapPlaceSearchClient.from_env()
 
         if center_x is not None and center_y is not None:
-            # Q1: ThreadPoolExecutor를 통해 편향 검색과 전국 보정 검색을 동시 병렬 실행
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                future_biased = executor.submit(
-                    client.search,
-                    keyword,
-                    count=count,
-                    page=page,
-                    center_x=float(center_x),
-                    center_y=float(center_y),
-                    radius_km=radius_km,
-                )
-                future_nationwide = executor.submit(
-                    client.search,
-                    keyword,
-                    count=5,
-                )
-                result = future_biased.result()
-                try:
-                    nationwide = future_nationwide.result()
-                except TMapPlaceSearchError:
-                    nationwide = None
-
+            # 지역 엄격 모드: 전달받은 중심 좌표 반경 내 장소만 엄격히 검색
+            result = client.search(
+                keyword,
+                count=count,
+                page=page,
+                center_x=float(center_x),
+                center_y=float(center_y),
+                radius_km=radius_km,
+            )
             items = list(result.items)
-            if nationwide is not None and nationwide.items:
-                target = _normalize_place_name(keyword)
-                existing_ids = {item.place_id for item in items}
-                promoted = []
-                for item in nationwide.items:
-                    if item.place_id in existing_ids:
-                        continue
-                    norm_name = _normalize_place_name(item.name)
-                    # 완전 일치, 접두사 일치("부산대학교 부산캠퍼스", "한국해양대학교"),
-                    # 또는 현재 지역 결과가 3개 이하로 빈약할 때 키워드 포함 매칭
-                    if norm_name == target or norm_name.startswith(target) or (len(items) < 3 and target in norm_name):
-                        promoted.append(item)
-                        existing_ids.add(item.place_id)
-
-                if not items:
-                    items = list(nationwide.items)
-                else:
-                    items = promoted + items
-                if len(items) > count:
-                    items = items[:count]
         else:
+            # 전국 검색 모드: 중심 좌표 없이 전국 단위 검색
             result = client.search(
                 keyword,
                 count=count,
