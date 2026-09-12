@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from datetime import time as dt_time
@@ -258,6 +262,12 @@ def _candidate_dict(
     return result
 
 
+_PLACE_SEARCH_CACHE: OrderedDict[tuple[Any, ...], tuple[float, dict[str, Any]]] = OrderedDict()
+_PLACE_SEARCH_LOCK = threading.Lock()
+_PLACE_SEARCH_CACHE_MAXSIZE = 256
+_PLACE_SEARCH_TTL = 3600.0  # 1 hour
+
+
 class PlanBApiService:
     def __init__(self, cache_path: str | Path = ".cache/plan_b_api.sqlite3") -> None:
         self.cache = SQLiteTTLCache(cache_path)
@@ -320,29 +330,54 @@ class PlanBApiService:
 
     def place_search(self, query: Mapping[str, Any]) -> dict[str, Any]:
         keyword = str(query.get("q") or query.get("query") or "").strip()
+        if not keyword:
+            return {"query": "", "total_count": 0, "items": []}
+
         center_x = query.get("center_x")
         center_y = query.get("center_y")
         count = int(query.get("count", 10))
+        page = int(query.get("page", 1))
+        radius_km = int(query.get("radius_km", 20))
+
+        cx_key = round(float(center_x), 3) if center_x is not None and str(center_x).strip() != "" else None
+        cy_key = round(float(center_y), 3) if center_y is not None and str(center_y).strip() != "" else None
+        cache_key = (keyword, cx_key, cy_key, count, page, radius_km)
+
+        with _PLACE_SEARCH_LOCK:
+            if cache_key in _PLACE_SEARCH_CACHE:
+                cached_time, cached_payload = _PLACE_SEARCH_CACHE[cache_key]
+                if time.time() - cached_time < _PLACE_SEARCH_TTL:
+                    _PLACE_SEARCH_CACHE.move_to_end(cache_key)
+                    return dict(cached_payload)
+                del _PLACE_SEARCH_CACHE[cache_key]
+
         client = TMapPlaceSearchClient.from_env()
-        result = client.search(
-            keyword,
-            count=count,
-            page=int(query.get("page", 1)),
-            center_x=float(center_x) if center_x is not None else None,
-            center_y=float(center_y) if center_y is not None else None,
-            radius_km=int(query.get("radius_km", 20)),
-        )
-        items = list(result.items)
 
         if center_x is not None and center_y is not None:
-            # 지도 중심 근처로만 편향 검색하면 TMAP이 이름 일치보다 거리를
-            # 우선하기 때문에, 실제로는 멀리 있는 전국적으로 유명한 동명
-            # 장소가 순위 밖으로 밀리는 경우가 있다(예: "에버랜드" 검색 시
-            # 지도가 서울 쪽에 있으면 진짜 용인 놀이공원 대신 서울의 동명
-            # 매장이 1위로 나옴). 편향 없는 검색에서 이름이 정확히 일치하는
-            # 결과를 최우선으로 끌어올려 이 문제를 보완한다.
-            try:
-                nationwide = client.search(keyword, count=5)
+            # Q1: ThreadPoolExecutor를 통해 편향 검색과 전국 보정 검색을 동시 병렬 실행
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                future_biased = executor.submit(
+                    client.search,
+                    keyword,
+                    count=count,
+                    page=page,
+                    center_x=float(center_x),
+                    center_y=float(center_y),
+                    radius_km=radius_km,
+                )
+                future_nationwide = executor.submit(
+                    client.search,
+                    keyword,
+                    count=5,
+                )
+                result = future_biased.result()
+                try:
+                    nationwide = future_nationwide.result()
+                except TMapPlaceSearchError:
+                    nationwide = None
+
+            items = list(result.items)
+            if nationwide is not None:
                 target = _normalize_place_name(keyword)
                 existing_ids = {item.place_id for item in items}
                 promoted = [
@@ -353,14 +388,29 @@ class PlanBApiService:
                 items = promoted + items
                 if len(items) > count:
                     items = items[:count]
-            except TMapPlaceSearchError:
-                pass
+        else:
+            result = client.search(
+                keyword,
+                count=count,
+                page=page,
+                center_x=None,
+                center_y=None,
+                radius_km=radius_km,
+            )
+            items = list(result.items)
 
-        return {
+        payload = {
             "query": result.query,
             "total_count": result.total_count,
             "items": [item.selection_payload() for item in items],
         }
+
+        with _PLACE_SEARCH_LOCK:
+            _PLACE_SEARCH_CACHE[cache_key] = (time.time(), payload)
+            if len(_PLACE_SEARCH_CACHE) > _PLACE_SEARCH_CACHE_MAXSIZE:
+                _PLACE_SEARCH_CACHE.popitem(last=False)
+
+        return payload
 
     @staticmethod
     def match_kto_category(query: Mapping[str, Any]) -> dict[str, Any]:

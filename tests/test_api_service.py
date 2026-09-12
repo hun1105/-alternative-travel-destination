@@ -301,6 +301,33 @@ class ApiServiceTests(unittest.TestCase):
             self.assertEqual(result["legs"][0]["mode"], "도보")
             self.assertIn("도보 경로를 안내합니다", result["notice"])
 
+    def test_place_search_lru_cache_and_empty_query(self) -> None:
+        import time
+        from plan_b_api.api_service import _PLACE_SEARCH_CACHE, _PLACE_SEARCH_LOCK
+        service = PlanBApiService()
+        
+        # 빈 쿼리 처리
+        empty = service.place_search({"q": "   "})
+        self.assertEqual(empty["items"], [])
+        self.assertEqual(empty["total_count"], 0)
+
+        # 가짜 캐시 주입 후 캐시 히트 동작 검증
+        test_key = ("테스트장소", 126.977, 37.579, 10, 1, 20)
+        fake_payload = {"query": "테스트장소", "total_count": 1, "items": [{"name": "테스트장소", "place_id": "test-1"}]}
+        with _PLACE_SEARCH_LOCK:
+            _PLACE_SEARCH_CACHE[test_key] = (time.time(), fake_payload)
+        
+        cached_result = service.place_search({
+            "q": "테스트장소",
+            "center_x": 126.9771,
+            "center_y": 37.5791,
+            "count": 10,
+            "page": 1,
+            "radius_km": 20,
+        })
+        self.assertEqual(cached_result["items"][0]["place_id"], "test-1")
+        self.assertEqual(cached_result["query"], "테스트장소")
+
 
 if __name__ == "__main__":
     unittest.main()
