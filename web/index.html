@@ -238,8 +238,9 @@
   details summary { cursor: pointer; font-size: 14px; color: var(--muted); margin: 8px 0; }
   small.hint { color: var(--muted); display:block; margin-top:2px; }
 
-  /* 심사용 데모 프리셋 */
+  /* 심사용 데모 프리셋 (UI 숨김 - 코드 완전 보존) */
   .demo-preset-box {
+    display: none !important;
     background: linear-gradient(135deg, #f0f6ff 0%, #e5f0ff 100%);
     border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; margin-bottom: 16px;
   }
@@ -1680,7 +1681,7 @@ document.getElementById("btn-copy-link").addEventListener("click", () => {
 function setupDemoScenarios() {
   const demoBox = document.getElementById("demo-preset-box");
   if (demoBox && new URLSearchParams(window.location.search).has("demo")) {
-    demoBox.style.display = "block";
+    demoBox.style.setProperty("display", "block", "important");
   }
   const rainBtn = document.getElementById("btn-demo-rain");
   const familyBtn = document.getElementById("btn-demo-family");
