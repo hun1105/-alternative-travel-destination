@@ -291,7 +291,23 @@
       </div>
     </div>
 
-    <h2>여행 정보</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px;">
+      <h2 style="margin:0; white-space:nowrap;">여행 정보</h2>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <label for="trip-region" style="margin:0; font-size:12px; font-weight:600; color:var(--muted); white-space:nowrap;">지역</label>
+        <select id="trip-region" style="padding:4px 8px; font-size:12px; font-weight:600; border-radius:6px; border:1px solid #cbd5e1; background:#fff; color:#1e293b; cursor:pointer; width:auto; min-width:115px;">
+          <option value="seoul" selected>서울 (기본)</option>
+          <option value="nationwide">전국</option>
+          <option value="busan">부산</option>
+          <option value="jeju">제주</option>
+          <option value="gyeonggi_incheon">경기/인천</option>
+          <option value="gangwon">강원</option>
+          <option value="daejeon_chungcheong">대전/충청</option>
+          <option value="daegu_gyeongbuk">대구/경북</option>
+          <option value="gwangju_jeolla">광주/전라</option>
+        </select>
+      </div>
+    </div>
     <label>제목</label>
     <input type="text" id="trip-title" placeholder="예: 서울 역사 여행">
     <div class="row">
@@ -528,6 +544,32 @@ const searchLayer = L.layerGroup().addTo(map);
 const recommendLayer = L.layerGroup().addTo(map);
 const stepLayer = L.layerGroup().addTo(map);
 const searchAreaLayer = L.layerGroup().addTo(map);
+
+// ---------- 지역 프리셋 및 지도 이동 ----------
+const REGION_MAP_PRESETS = {
+  seoul: { center: [37.5665, 126.9780], zoom: 12, name: "서울", placeholder: "서울 장소 검색 (예: 경복궁, 남산)" },
+  nationwide: { center: [36.2, 127.8], zoom: 7, name: "전국", placeholder: "전국 장소 검색 (예: 에버랜드, 불국사)" },
+  busan: { center: [35.1796, 129.0756], zoom: 12, name: "부산", placeholder: "부산 장소 검색 (예: 해운대, 부산대)" },
+  jeju: { center: [33.4996, 126.5312], zoom: 11, name: "제주", placeholder: "제주 장소 검색 (예: 성산일출봉, 한라산)" },
+  gyeonggi_incheon: { center: [37.4563, 126.7052], zoom: 10, name: "경기/인천", placeholder: "경기/인천 장소 검색 (예: 수원화성, 송도)" },
+  gangwon: { center: [37.7519, 128.8761], zoom: 9, name: "강원", placeholder: "강원 장소 검색 (예: 강릉 경포대, 설악산)" },
+  daejeon_chungcheong: { center: [36.3504, 127.3845], zoom: 10, name: "대전/충청", placeholder: "대전/충청 장소 검색 (예: 엑스포, 안면도)" },
+  daegu_gyeongbuk: { center: [35.8714, 128.6014], zoom: 10, name: "대구/경북", placeholder: "대구/경북 장소 검색 (예: 동성로, 첨성대)" },
+  gwangju_jeolla: { center: [35.1595, 126.8526], zoom: 10, name: "광주/전라", placeholder: "광주/전라 장소 검색 (예: 무등산, 한옥마을)" },
+};
+
+const tripRegionEl = document.getElementById("trip-region");
+if (tripRegionEl) {
+  tripRegionEl.addEventListener("change", (e) => {
+    const reg = REGION_MAP_PRESETS[e.target.value] || REGION_MAP_PRESETS.seoul;
+    map.setView(reg.center, reg.zoom);
+    const searchInput = document.getElementById("search-q");
+    if (searchInput && reg.placeholder) {
+      searchInput.placeholder = reg.placeholder;
+    }
+    toast(`${reg.name} 지역으로 이동됨`);
+  });
+}
 
 // ---------- 사이드바 크기 조절 ----------
 (function setupResizer() {
@@ -987,8 +1029,14 @@ async function runSearch() {
   dismissSearchHighlight();
   searchLayer.clearLayers();
   try {
+    const region = document.getElementById("trip-region")?.value || "seoul";
+    const params = { q, count: 8 };
     const center = map.getCenter();
-    const data = await apiGet("/place-search", { q, center_x: center.lng, center_y: center.lat, count: 8 });
+    if (region !== "nationwide") {
+      params.center_x = center.lng;
+      params.center_y = center.lat;
+    }
+    const data = await apiGet("/place-search", params);
     resultsEl.innerHTML = "";
     const pts = [];
     (data.items || []).forEach((item) => {
@@ -1001,9 +1049,12 @@ async function runSearch() {
       );
       const distanceText = distanceMeters >= 1000
         ? `${(distanceMeters / 1000).toFixed(1)}km` : `${Math.round(distanceMeters)}m`;
+      const distanceLabel = region === "nationwide"
+        ? `지도 중심에서 약 ${distanceText}`
+        : `현재 지도 중심에서 약 ${distanceText}`;
       card.innerHTML = `<div><div class="title">${escapeHtml(item.name)}${categoryBadge}</div>
         <div class="meta">${escapeHtml(item.address || "")}</div>
-        <div class="meta distance">현재 지도 중심에서 약 ${distanceText}</div></div>`;
+        <div class="meta distance">${distanceLabel}</div></div>`;
       const btn = document.createElement("button");
       btn.textContent = "일정에 추가";
       btn.className = "small primary search-add-btn";
