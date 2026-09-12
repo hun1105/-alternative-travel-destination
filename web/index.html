@@ -151,17 +151,21 @@
     border-radius: 12px; padding: 2px 9px; font-size: 12px; font-weight: 700;
     margin-left: 6px; vertical-align: middle; white-space: nowrap;
   }
-  .search-result {
+  .search-result,
+  .rec-card-item {
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   }
   .search-result:hover,
-  .search-result.hover-active {
+  .search-result.hover-active,
+  .rec-card-item:hover,
+  .rec-card-item.hover-active {
     border-color: var(--accent, #2563eb) !important;
     background: #f0f7ff !important;
     box-shadow: 0 3px 10px rgba(37, 99, 235, 0.18) !important;
   }
-  .search-marker-icon {
+  .search-marker-icon,
+  .numbered-marker-icon {
     background: none !important;
     border: none !important;
   }
@@ -466,7 +470,8 @@ document.getElementById("detail-modal-overlay").addEventListener("click", (e) =>
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closeDetailModal();
-    if (typeof dismissSearchHighlight === "function") dismissSearchHighlight();
+    if (typeof dismissHighlight === "function") dismissHighlight();
+    else if (typeof dismissSearchHighlight === "function") dismissSearchHighlight();
   }
 });
 
@@ -727,68 +732,99 @@ function searchMarkerIcon(isHighlighted = false) {
   });
 }
 
-let currentHighlightedSearchMarker = null;
-let currentHighlightedSearchCard = null;
+function numberedIcon(n, color, isHighlighted = false) {
+  const bg = isHighlighted ? "#ef4444" : (color || '#2d6cdf');
+  const size = isHighlighted ? 32 : 24;
+  const shadow = isHighlighted ? "0 4px 12px rgba(239, 68, 68, 0.7)" : "0 1px 3px rgba(0,0,0,.4)";
+  const border = isHighlighted ? "2.5px solid #fff" : "2px solid #fff";
+  const fontSize = isHighlighted ? "14px" : "12px";
+  return L.divIcon({
+    html: `<div style="background:${bg};color:#fff;border-radius:50%;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-size:${fontSize};font-weight:700;border:${border};box-shadow:${shadow};transition:transform 0.15s ease;">${n}</div>`,
+    className: "numbered-marker-icon" + (isHighlighted ? " highlighted" : ""),
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  });
+}
 
-function highlightSearchPlace(marker, card, panIntoView = false) {
-  if (currentHighlightedSearchMarker && currentHighlightedSearchMarker !== marker) {
-    currentHighlightedSearchMarker.setIcon(searchMarkerIcon(false));
-    currentHighlightedSearchMarker.setZIndexOffset(0);
+let currentHighlightedMarker = null;
+let currentHighlightedCard = null;
+let currentHighlightedRestoreFn = null;
+
+function highlightPlaceMarker(marker, card, highIcon, restoreIconFn) {
+  if (currentHighlightedMarker && currentHighlightedMarker !== marker) {
+    dismissHighlight();
   }
-  if (currentHighlightedSearchCard && currentHighlightedSearchCard !== card) {
-    currentHighlightedSearchCard.classList.remove("hover-active");
-  }
+  currentHighlightedMarker = marker;
+  currentHighlightedCard = card;
+  currentHighlightedRestoreFn = restoreIconFn;
 
-  currentHighlightedSearchMarker = marker;
-  currentHighlightedSearchCard = card;
-
-  marker.setIcon(searchMarkerIcon(true));
+  if (highIcon) marker.setIcon(highIcon);
   marker.setZIndexOffset(1000);
   if (card) {
     card.classList.add("hover-active");
   }
-
   marker.openPopup();
+}
 
-  if (panIntoView && map && !map.getBounds().contains(marker.getLatLng())) {
-    map.panTo(marker.getLatLng(), { animate: true, duration: 0.3 });
+let isDismissingHighlight = false;
+
+function dismissHighlight() {
+  if (isDismissingHighlight || !currentHighlightedMarker) return;
+  isDismissingHighlight = true;
+  try {
+    const marker = currentHighlightedMarker;
+    const card = currentHighlightedCard;
+    const restoreFn = currentHighlightedRestoreFn;
+
+    currentHighlightedMarker = null;
+    currentHighlightedCard = null;
+    currentHighlightedRestoreFn = null;
+
+    if (marker) {
+      marker.closePopup();
+      if (typeof restoreFn === "function") {
+        marker.setIcon(restoreFn());
+      }
+      marker.setZIndexOffset(0);
+    }
+    if (card) {
+      card.classList.remove("hover-active");
+    }
+    if (map) map.closePopup();
+  } finally {
+    isDismissingHighlight = false;
   }
 }
 
 function dismissSearchHighlight() {
-  if (currentHighlightedSearchMarker) {
-    currentHighlightedSearchMarker.closePopup();
-    currentHighlightedSearchMarker.setIcon(searchMarkerIcon(false));
-    currentHighlightedSearchMarker.setZIndexOffset(0);
-    currentHighlightedSearchMarker = null;
-  }
-  if (currentHighlightedSearchCard) {
-    currentHighlightedSearchCard.classList.remove("hover-active");
-    currentHighlightedSearchCard = null;
-  }
-  if (map) map.closePopup();
+  dismissHighlight();
+}
+
+function highlightSearchPlace(marker, card) {
+  highlightPlaceMarker(
+    marker,
+    card,
+    searchMarkerIcon(true),
+    () => searchMarkerIcon(false)
+  );
+}
+
+function highlightRecommendPlace(marker, card, rank) {
+  highlightPlaceMarker(
+    marker,
+    card,
+    numberedIcon(rank, "#1f9d55", true),
+    () => numberedIcon(rank, "#1f9d55", false)
+  );
 }
 
 if (map) {
   map.on("popupclose", (e) => {
-    if (currentHighlightedSearchMarker && e.popup === currentHighlightedSearchMarker.getPopup()) {
-      currentHighlightedSearchMarker.setIcon(searchMarkerIcon(false));
-      currentHighlightedSearchMarker.setZIndexOffset(0);
-      if (currentHighlightedSearchCard) {
-        currentHighlightedSearchCard.classList.remove("hover-active");
-      }
-      currentHighlightedSearchMarker = null;
-      currentHighlightedSearchCard = null;
+    if (isDismissingHighlight) return;
+    if (currentHighlightedMarker && e.popup === currentHighlightedMarker.getPopup()) {
+      dismissHighlight();
     }
-  });
-}
-
-function numberedIcon(n, color) {
-  return L.divIcon({
-    html: `<div style="background:${color || '#2d6cdf'};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);">${n}</div>`,
-    className: "",
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
   });
 }
 
@@ -986,18 +1022,18 @@ async function runSearch() {
 
       // 검색된 장소 위에 마우스가 가면 마커 색상 변경 + 이름(팝업) 표시
       card.addEventListener("mouseenter", () => {
-        highlightSearchPlace(marker, card, true);
+        highlightSearchPlace(marker, card);
       });
 
       card.addEventListener("click", (e) => {
         if (!e.target.closest(".search-add-btn")) {
-          highlightSearchPlace(marker, card, true);
+          highlightSearchPlace(marker, card);
         }
       });
 
       // 지도 위 마커를 선택(클릭)했을 때도 동일하게 반응
       marker.on("click", () => {
-        highlightSearchPlace(marker, card, false);
+        highlightSearchPlace(marker, card);
       });
     });
 
@@ -1983,6 +2019,7 @@ document.getElementById("chk-prev-radius").addEventListener("change", () => {
 
 document.getElementById("btn-close-recommend").addEventListener("click", () => {
   document.getElementById("recommend-panel").style.display = "none";
+  dismissHighlight();
   recommendLayer.clearLayers();
   searchAreaLayer.clearLayers();
 });
@@ -2041,6 +2078,7 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
   }
   const resultsEl = document.getElementById("recommend-results");
   resultsEl.innerHTML = "<div class='meta'>추천 계산 중...</div>";
+  dismissHighlight();
   recommendLayer.clearLayers();
   try {
     const data = await apiPost("/recommendations", body);
@@ -2075,7 +2113,7 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
     }
     list.forEach((cand) => {
       const card = document.createElement("div");
-      card.className = "card";
+      card.className = "card rec-card-item";
       let tierBadge = "";
       if (cand.rank === 1) {
         tierBadge = `<span class="rec-tier-badge tier-best">🏆 종합 최적</span>`;
@@ -2115,18 +2153,40 @@ document.getElementById("btn-run-recommend").addEventListener("click", async () 
           </div>` : ""}`;
       const detailBtn = card.querySelector(".rec-detail-btn");
       if (detailBtn) {
-        detailBtn.addEventListener("click", () => openDetailModal(cand.title, fullDescText));
+        detailBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openDetailModal(cand.title, fullDescText);
+        });
       }
       const btn = document.createElement("button");
       btn.className = "small primary";
       btn.textContent = "이 후보로 교체";
-      btn.addEventListener("click", () => applyReplacement(item.item_id, cand));
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        applyReplacement(item.item_id, cand);
+      });
       card.appendChild(btn);
       resultsEl.appendChild(card);
 
-      const marker = L.marker([cand.latitude, cand.longitude], { icon: numberedIcon(cand.rank, "#1f9d55") })
-        .bindPopup(escapeHtml(cand.title));
+      const marker = L.marker([cand.latitude, cand.longitude], {
+        icon: numberedIcon(cand.rank, "#1f9d55", false),
+      }).bindPopup(`<b>${escapeHtml(cand.title)}</b>${cand.address ? `<br><small style="color:#666;">${escapeHtml(cand.address)}</small>` : ""}${cand.score ? `<br><small style="color:#2563eb;font-weight:600;">점수: ${cand.score}점</small>` : ""}`);
       recommendLayer.addLayer(marker);
+
+      // 추천 후보 카드 호버 시 마커 강조 및 팝업 표출
+      card.addEventListener("mouseenter", () => {
+        highlightRecommendPlace(marker, card, cand.rank);
+      });
+
+      card.addEventListener("click", (e) => {
+        if (!e.target.closest("button")) {
+          highlightRecommendPlace(marker, card, cand.rank);
+        }
+      });
+
+      marker.on("click", () => {
+        highlightRecommendPlace(marker, card, cand.rank);
+      });
     });
 
     if (data.excluded && data.excluded.length > 0) {
@@ -2180,6 +2240,7 @@ async function applyReplacement(itemId, candidate) {
     delete state.legRoutes[itemId];
     renderSchedule();
     document.getElementById("recommend-panel").style.display = "none";
+    dismissHighlight();
     recommendLayer.clearLayers();
     toast(candidate.title + "(으)로 교체됨");
   } catch (err) {
