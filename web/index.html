@@ -1683,6 +1683,23 @@ function setupDemoScenarios() {
   if (demoBox && new URLSearchParams(window.location.search).has("demo")) {
     demoBox.style.setProperty("display", "block", "important");
   }
+
+  // Alt+D 단축키로 심사용 데모 박스 표시/숨김 토글
+  window.addEventListener("keydown", (e) => {
+    if (e.altKey && (e.key === "d" || e.key === "D" || e.code === "KeyD")) {
+      e.preventDefault();
+      if (!demoBox) return;
+      const isHidden = window.getComputedStyle(demoBox).display === "none";
+      if (isHidden) {
+        demoBox.style.setProperty("display", "block", "important");
+        toast("⚡ 심사용 데모 시나리오 활성화 (Alt+D로 숨김)");
+      } else {
+        demoBox.style.setProperty("display", "none", "important");
+        toast("⚡ 심사용 데모 시나리오 숨김");
+      }
+    }
+  });
+
   const rainBtn = document.getElementById("btn-demo-rain");
   const familyBtn = document.getElementById("btn-demo-family");
   if (rainBtn) {
