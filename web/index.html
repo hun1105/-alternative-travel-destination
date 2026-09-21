@@ -202,12 +202,30 @@
   }
   .modal-box h2 { margin: 0 0 12px; padding: 0; border-top: none; font-size: 19px; }
   .modal-body { font-size: 15px; line-height: 1.75; color: #262b33; white-space: pre-wrap; }
-  .schedule-item { position: relative; }
+  .schedule-item {
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .schedule-item:hover {
+    border-color: #93c5fd;
+  }
+  .schedule-item.selected {
+    border-color: #ef4444 !important;
+    background: #fef2f2 !important;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.22) !important;
+  }
+  .schedule-item.selected .badge {
+    background: #ef4444 !important;
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.5);
+  }
   .schedule-item .badge {
     position: absolute; top: -9px; left: -9px; width: 24px; height: 24px; border-radius: 50%;
     background: var(--accent); color: #fff; font-size: 13px; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
   }
   .schedule-item.locked { border-color: var(--accent); background: #eef3fd; }
+  .schedule-item.locked.selected { border-color: #ef4444 !important; background: #fff5f5 !important; }
   .schedule-item.dragging { opacity: 0.35; }
   .schedule-item.drop-above { border-top: 3px solid var(--accent); }
   .schedule-item.drop-below { border-bottom: 3px solid var(--accent); }
@@ -462,6 +480,7 @@ const state = {
   recommendMarkers: [],
   lastDirections: null,
   lastRouteMode: null,
+  selectedScheduleItemId: null,
 };
 
 let seq = 1;
@@ -879,11 +898,89 @@ function highlightRecommendPlace(marker, card, rank) {
   );
 }
 
+let scheduleMarkersMap = {}; // item_id -> L.marker
+
+function selectScheduleItem(itemId) {
+  if (!itemId) {
+    deselectScheduleItem();
+    return;
+  }
+  dismissHighlight();
+
+  const prevId = state.selectedScheduleItemId;
+  state.selectedScheduleItemId = itemId;
+
+  if (prevId && prevId !== itemId && scheduleMarkersMap[prevId]) {
+    const prevIdx = state.schedules.findIndex((s) => s.item_id === prevId);
+    if (prevIdx >= 0) {
+      const prevItem = state.schedules[prevIdx];
+      scheduleMarkersMap[prevId].setIcon(
+        numberedIcon(prevIdx + 1, prevItem.locked ? "#1f9d55" : "#2d6cdf", false)
+      );
+      scheduleMarkersMap[prevId].setZIndexOffset(0);
+    }
+    const prevCard = document.querySelector(`.schedule-item[data-item-id="${prevId}"]`);
+    if (prevCard) prevCard.classList.remove("selected");
+  }
+
+  const newIdx = state.schedules.findIndex((s) => s.item_id === itemId);
+  if (newIdx >= 0 && scheduleMarkersMap[itemId]) {
+    const newItem = state.schedules[newIdx];
+    const marker = scheduleMarkersMap[itemId];
+    marker.setIcon(
+      numberedIcon(newIdx + 1, newItem.locked ? "#1f9d55" : "#2d6cdf", true)
+    );
+    marker.setZIndexOffset(1000);
+    marker.openPopup();
+    map.panTo(marker.getLatLng());
+  }
+
+  document.querySelectorAll(".schedule-item").forEach((el) => {
+    el.classList.toggle("selected", el.dataset.itemId === itemId);
+  });
+  const newCard = document.querySelector(`.schedule-item[data-item-id="${itemId}"]`);
+  if (newCard) {
+    newCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+function deselectScheduleItem() {
+  const prevId = state.selectedScheduleItemId;
+  state.selectedScheduleItemId = null;
+  if (prevId && scheduleMarkersMap[prevId]) {
+    const prevIdx = state.schedules.findIndex((s) => s.item_id === prevId);
+    if (prevIdx >= 0) {
+      const prevItem = state.schedules[prevIdx];
+      scheduleMarkersMap[prevId].setIcon(
+        numberedIcon(prevIdx + 1, prevItem.locked ? "#1f9d55" : "#2d6cdf", false)
+      );
+      scheduleMarkersMap[prevId].setZIndexOffset(0);
+    }
+  }
+  document.querySelectorAll(".schedule-item.selected").forEach((el) => {
+    el.classList.remove("selected");
+  });
+}
+
 if (map) {
   map.on("popupclose", (e) => {
     if (isDismissingHighlight) return;
     if (currentHighlightedMarker && e.popup === currentHighlightedMarker.getPopup()) {
       dismissHighlight();
+    }
+    if (state.selectedScheduleItemId && scheduleMarkersMap[state.selectedScheduleItemId]) {
+      if (e.popup === scheduleMarkersMap[state.selectedScheduleItemId].getPopup()) {
+        deselectScheduleItem();
+      }
+    }
+  });
+
+  map.on("click", (e) => {
+    if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest(".leaflet-marker-icon, .leaflet-popup, .schedule-item")) {
+      return;
+    }
+    if (state.selectedScheduleItemId) {
+      deselectScheduleItem();
     }
   });
 }
@@ -919,11 +1016,20 @@ function subwayLineColor(laneName) {
 function redrawScheduleLayer() {
   scheduleLayer.clearLayers();
   legLayer.clearLayers();
+  scheduleMarkersMap = {};
   const pts = [];
   state.schedules.forEach((item, idx) => {
+    const isSelected = (state.selectedScheduleItemId === item.item_id);
     const marker = L.marker([item.place.latitude, item.place.longitude], {
-      icon: numberedIcon(idx + 1, item.locked ? "#1f9d55" : "#2d6cdf"),
+      icon: numberedIcon(idx + 1, item.locked ? "#1f9d55" : "#2d6cdf", isSelected),
     }).bindPopup(`<b>${escapeHtml(item.place.name)}</b><br>${escapeHtml(item.place.address || "")}`);
+    if (isSelected) {
+      marker.setZIndexOffset(1000);
+    }
+    marker.on("click", () => {
+      selectScheduleItem(item.item_id);
+    });
+    scheduleMarkersMap[item.item_id] = marker;
     scheduleLayer.addLayer(marker);
     pts.push([item.place.latitude, item.place.longitude]);
   });
@@ -1229,8 +1335,10 @@ function renderSchedule() {
   document.getElementById("schedule-count").textContent = state.schedules.length;
   list.innerHTML = "";
   state.schedules.forEach((item, idx) => {
+    const isSelected = (state.selectedScheduleItemId === item.item_id);
     const card = document.createElement("div");
-    card.className = "card schedule-item" + (item.locked ? " locked" : "");
+    card.className = "card schedule-item" + (item.locked ? " locked" : "") + (isSelected ? " selected" : "");
+    card.dataset.itemId = item.item_id;
     let typeTag = "";
     if (item.place.kto_content_type_id === "12") {
       typeTag = `<span class="badge-tag outdoor-tag">야외 관광지</span>`;
@@ -1262,11 +1370,23 @@ function renderSchedule() {
     card.querySelector(".f-visit").addEventListener("change", (e) => { item.visit_minutes = parseInt(e.target.value, 10) || 60; });
     card.querySelector(".f-fixed").addEventListener("change", (e) => { item.fixed_arrival_time = e.target.value || null; });
     card.querySelector(".f-locked").addEventListener("change", (e) => { item.locked = e.target.checked; renderSchedule(); });
-    card.querySelector(".f-remove").addEventListener("click", () => {
+    card.querySelector(".f-remove").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (state.selectedScheduleItemId === item.item_id) {
+        state.selectedScheduleItemId = null;
+      }
       state.schedules.splice(idx, 1);
       renderSchedule();
     });
-    card.querySelector(".f-gap").addEventListener("click", () => openGapFill(idx));
+    card.querySelector(".f-gap").addEventListener("click", (e) => {
+      e.stopPropagation();
+      openGapFill(idx);
+    });
+
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button, input, label, .drag-handle")) return;
+      selectScheduleItem(item.item_id);
+    });
 
     const handle = card.querySelector(".drag-handle");
     handle.addEventListener("dragstart", (e) => {
@@ -1941,6 +2061,7 @@ document.getElementById("btn-new").addEventListener("click", () => {
   if (!confirm("현재 일정을 지우고 새로 시작할까요?")) return;
   state.tripId = null;
   state.tripVersion = null;
+  state.selectedScheduleItemId = null;
   state.schedules = [];
   state.priorities = [];
   refreshPriorityChips();
@@ -1957,6 +2078,7 @@ async function loadTripById(tripId) {
   const plan = data.plan;
   state.tripId = data.trip_id;
   state.tripVersion = data.version;
+  state.selectedScheduleItemId = null;
   document.getElementById("trip-title").value = plan.title || "";
   document.getElementById("trip-date").value = plan.trip_date || "";
   document.getElementById("trip-start").value = plan.start_time || "10:00";
