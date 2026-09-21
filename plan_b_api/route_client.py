@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -161,6 +162,22 @@ def _default_transport(
         return exc.code, exc.read()
 
 
+def _haversine_distance_meters(
+    lat1: float, lon1: float, lat2: float, lon2: float
+) -> float:
+    r = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(delta_phi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    )
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return r * c
+
+
 class TMapPedestrianClient:
     def __init__(
         self,
@@ -185,6 +202,28 @@ class TMapPedestrianClient:
         start_name: str = "현재 위치",
         end_name: str = "목적지",
     ) -> WalkingRoute:
+        direct_dist = _haversine_distance_meters(start_y, start_x, end_y, end_x)
+        # 광화문-경복궁처럼 동일 POI 좌표이거나 50m 이내 초근접 지점인 경우 바로 반환
+        if direct_dist < 50.0:
+            duration_sec = max(30, int(direct_dist / 1.1))
+            return WalkingRoute(
+                distance_meters=round(direct_dist, 1),
+                duration_seconds=duration_sec,
+                geometry={
+                    "type": "LineString",
+                    "coordinates": [[start_x, start_y], [end_x, end_y]],
+                },
+                steps=(
+                    WalkingStep(
+                        instruction=f"{end_name} 도착 (동일 부지 또는 인접 지점, 도보 1분 이내)",
+                        turn_type=None,
+                        distance_meters=round(direct_dist, 1),
+                        longitude=end_x,
+                        latitude=end_y,
+                    ),
+                ),
+            )
+
         payload = {
             "startX": start_x,
             "startY": start_y,
@@ -229,6 +268,26 @@ class TMapPedestrianClient:
             detail = response_body.decode(
                 "utf-8-sig", errors="replace"
             )[:300]
+            # TMAP 100m 미만 구간 Bad Request 에러 대응
+            if "waypoints are too near" in detail:
+                duration_sec = max(60, int(direct_dist / 1.1))
+                return WalkingRoute(
+                    distance_meters=round(direct_dist, 1),
+                    duration_seconds=duration_sec,
+                    geometry={
+                        "type": "LineString",
+                        "coordinates": [[start_x, start_y], [end_x, end_y]],
+                    },
+                    steps=(
+                        WalkingStep(
+                            instruction=f"{end_name} 도착 (인접 지점, 도보 이동)",
+                            turn_type=None,
+                            distance_meters=round(direct_dist, 1),
+                            longitude=end_x,
+                            latitude=end_y,
+                        ),
+                    ),
+                )
             raise TMapApiError(
                 f"TMAP 보행 경로 HTTP 오류 {status}: {detail}"
             )

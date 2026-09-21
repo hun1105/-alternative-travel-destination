@@ -145,6 +145,41 @@ class RouteClientTests(unittest.TestCase):
                 end_y=37.58,
             )
 
+    def test_handles_identical_or_near_distance_coordinates(self) -> None:
+        # 광화문-경복궁처럼 동일 POI 좌표인 경우 API 호출 없이 안전하게 1분 이내 보행 경로 반환
+        client = TMapPedestrianClient(
+            TMapConfig("secret", max_retries=0),
+            transport=lambda *_: (500, b"Should not be called"),
+        )
+        route = client.pedestrian_route(
+            start_x=126.97929,
+            start_y=37.57664,
+            end_x=126.97929,
+            end_y=37.57664,
+            end_name="경복궁",
+        )
+        self.assertEqual(route.distance_meters, 0.0)
+        self.assertLessEqual(route.duration_minutes, 1.0)
+        self.assertIn("경복궁", route.steps[0].instruction)
+
+    def test_handles_waypoints_are_too_near_error_fallback(self) -> None:
+        # TMAP 100m 미만 400 Bad Request 발생 시에도 fallback으로 보행 경로 생성
+        client = TMapPedestrianClient(
+            TMapConfig("secret", max_retries=0),
+            transport=lambda *_: (400, b'{"error":{"message":"waypoints are too near. 100"}}'),
+        )
+        # 약 60m 떨어진 두 지점
+        route = client.pedestrian_route(
+            start_x=126.9790,
+            start_y=37.5766,
+            end_x=126.9797,
+            end_y=37.5766,
+            end_name="경복궁",
+        )
+        self.assertGreater(route.distance_meters, 0.0)
+        self.assertLessEqual(route.duration_minutes, 1.5)
+        self.assertIn("경복궁", route.steps[0].instruction)
+
 
 if __name__ == "__main__":
     unittest.main()
